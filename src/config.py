@@ -1,0 +1,118 @@
+# encoding: utf-8
+"""全局配置：目录、抽取字段 Schema、扫描与抽取参数（单一真相源）。
+
+设计约束（来自项目规范）：
+- 所有魔法数字/字符串/路径提取到本文件命名常量（UPPER_SNAKE_CASE + 注释）。
+- 表格列、筛选器、抽取目标全部由 SCHEMA 驱动，新增字段 = 改配置、零代码改 UI。
+- 关键词数据从 keywords_data.json 加载（支持热加载，无需重启应用）。
+"""
+from dataclasses import dataclass, field
+from typing import List
+
+from . import keywords as _kw_loader
+
+# ---------------------------------------------------------------------------
+# 路径与扫描配置
+# ---------------------------------------------------------------------------
+# 默认扫描根目录（UI 可覆盖，可任意指定）
+DEFAULT_ROOT: str = r"D:\Work_Area\AI"
+
+# 目标子目录名：递归查找所有名为该名的目录
+MEMORY_DIR_NAME: str = "memory"
+
+# 支持的文件扩展名（小写）
+MD_EXTENSIONS: tuple = (".md", ".markdown")
+
+# 缓存目录与文件（基于 path+mtime 的增量缓存，加速重扫）
+CACHE_DIR: str = ".cache"
+CACHE_FILE: str = "memory_index.json"
+
+# 扫描/抽取超时与上限（防止超大文件拖垮主流程）
+MAX_FILE_BYTES: int = 2 * 1024 * 1024  # 单文件最大 2MB，超出截断
+READ_CHUNK_LIMIT: int = 200_000        # 抽取时读取的最大字符数
+
+# ---------------------------------------------------------------------------
+# LLM 抽取（可选，OpenAI 兼容；默认关闭，保证离线可用）
+# ---------------------------------------------------------------------------
+LLM_ENABLED: bool = False
+LLM_BASE_URL: str = "https://api.openai.com/v1"
+LLM_API_KEY: str = ""          # 建议通过环境变量 MEMOALIGN_LLM_API_KEY 注入
+LLM_MODEL: str = "gpt-4o-mini"
+LLM_TIMEOUT_SEC: int = 30      # 网络请求超时
+
+# ---------------------------------------------------------------------------
+# 字段类型
+# ---------------------------------------------------------------------------
+class FieldType:
+    """字段类型枚举：决定表格渲染与筛选控件形态。"""
+    TEXT = "text"      # 文本：关键字输入筛选
+    SELECT = "select"  # 单选枚举：下拉单选筛选
+    MULTI = "multi"    # 多选枚举：下拉多选筛选
+
+
+@dataclass
+class FieldDef:
+    """字段定义：Schema 驱动的核心数据结构。
+
+    Attributes:
+        key: 字段键（表格列 field，须唯一）
+        label: 中文表头
+        ftype: 字段类型（FieldType）
+        filterable: 是否在筛选栏生成筛选器
+        width: 列宽（CSS，如 "40%" / "120px"）
+        options: 枚举候选值（select/multi 使用）
+        extractor: 规则抽取标识（extractor 据此选择抽取逻辑）
+    """
+    key: str
+    label: str
+    ftype: str = FieldType.TEXT
+    filterable: bool = True
+    width: str = "auto"
+    options: List[str] = field(default_factory=list)
+    extractor: str = ""
+
+
+# ---------------------------------------------------------------------------
+# 默认 Schema（可扩展：在此增删字段即可在 UI 生效）
+# ---------------------------------------------------------------------------
+# 枚举候选（提取为常量，避免硬编码散落）
+# 语言范畴 —— 覆盖主流编程语言 + Shell/CLI 领域 + 版本管理
+LANG_OPTIONS: List[str] = [
+    "Python", "JavaScript/TS", "Go", "Rust",
+    "Shell/Bash", "PowerShell", "Batch/CMD",
+    "Docker", "Git/GitHub",
+    "通用", "其他",
+]
+# 类型 —— 新增命令行/环境配置/兼容性，覆盖 Shell/DOS 开发场景
+TYPE_OPTIONS: List[str] = [
+    "问题", "陷阱", "最佳实践", "规范", "经验", "发布",
+    "环境配置", "命令行", "兼容性",
+    "其他",
+]
+SEVERITY_OPTIONS: List[str] = ["高", "中", "低"]
+# 平台 —— 同一问题可能只影响特定操作系统
+PLATFORM_OPTIONS: List[str] = ["Windows", "Linux", "macOS", "跨平台"]
+
+SCHEMA: List[FieldDef] = [
+    FieldDef("content", "内容", FieldType.TEXT, width="26%", extractor="content"),
+    FieldDef("language", "语言范畴", FieldType.MULTI, width="10%", options=LANG_OPTIONS, extractor="language"),
+    FieldDef("platform", "平台", FieldType.MULTI, width="8%", options=PLATFORM_OPTIONS, extractor="platform"),
+    FieldDef("type", "类型", FieldType.SELECT, width="8%", options=TYPE_OPTIONS, extractor="type"),
+    FieldDef("avoidance", "规避方法", FieldType.TEXT, width="20%", extractor="avoidance"),
+    FieldDef("severity", "严重度", FieldType.SELECT, width="6%", options=SEVERITY_OPTIONS, extractor="severity"),
+    FieldDef("source", "来源", FieldType.TEXT, width="12%", extractor="source"),
+    FieldDef("tags", "标签", FieldType.MULTI, width="10%", extractor="tags"),
+]
+
+# 主键字段（用于详情定位与去重）
+ID_FIELD: str = "source"
+
+# ---------------------------------------------------------------------------
+# 规则抽取关键词映射 —— 从 keywords_data.json 加载（支持热加载，无需重启应用）
+# ---------------------------------------------------------------------------
+# 以下变量在模块导入时从 JSON 初始化一次；后续可通过 keywords.reload() 热更新。
+LANGUAGE_KEYWORDS: dict = _kw_loader.load_language_keywords()
+TYPE_KEYWORDS: List[tuple] = _kw_loader.load_type_keywords()
+PLATFORM_KEYWORDS: dict = _kw_loader.load_platform_keywords()
+SEVERITY_KEYWORDS: dict = _kw_loader.load_severity_keywords()
+AVOIDANCE_HEADERS: List[str] = _kw_loader.load_avoidance_headers()

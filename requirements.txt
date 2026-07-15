@@ -1,0 +1,2 @@
+# MemoAlign 依赖（尽量精简，开箱即用）
+nicegui>=1.4.0

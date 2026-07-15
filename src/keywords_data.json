@@ -1,0 +1,44 @@
+{
+  "_version": "1.0",
+  "_description": "MemoAlign 关键词词典——纯数据文件，不依赖代码。手工编辑或通过UI添加关键词均无需重启应用（点击「热加载关键词」按钮即可生效）。",
+
+  "language_keywords": {
+    "Python": ["python", "pip", "conda", "venv", ".py", "pytorch", "pandas"],
+    "JavaScript/TS": ["javascript", "js", "ts", "node", "npm", "vite", "react", "vue", "electron", "tsup"],
+    "Go": ["golang", "go mod", "goroutine"],
+    "Rust": ["rust", "cargo", "crate"],
+    "Shell/Bash": ["bash", "zsh", "shell", ".sh", "chmod", "awk", "sed", "grep", "wget", "curl", "shebang"],
+    "PowerShell": ["powershell", "pwsh", ".ps1", ".psm1", "cmdlet", "get-childitem", "set-executionpolicy", "out-file", "out-null"],
+    "Batch/CMD": ["cmd", "batch", ".bat", ".cmd", "dos", "errorlevel", "setlocal", "chcp", "rmdir", "xcopy", "cmd.exe"],
+    "Docker": ["docker", "container", "dockerfile", "compose", "k8s", "kubernetes", "image", "registry"],
+    "Git/GitHub": ["github", ".git", "git clone", "git commit", "git push", "git pull", "git branch", "pr", "pull request", "merge", "fork", "repo", "repository", "gitignore", "gh "]
+  },
+
+  "type_keywords": [
+    ["陷阱", ["陷阱", "坑", "避坑", "踩坑"]],
+    ["命令行", ["命令", "cmd", "shell", "powershell", "pwsh", "bash", "执行失败", "参数错误", "转义", "退出码", "退出代码", "stdout", "stderr"]],
+    ["环境配置", ["安装", "卸载", "环境变量", "PATH", "依赖", "注册表", "registry", "install", "setup", "初始化", "choco", "winget", "brew", "scoop", "系统变量", "用户变量", "chocolatey", "apt-get", "yum install"]],
+    ["兼容性", ["兼容", "跨平台", "windows vs", "linux vs", "macos vs", "编码", "encoding", "gbk", "utf-8", "路径分隔", "路径分隔符", "正斜杠", "反斜杠", "换行符", "crlf", "lf"]],
+    ["问题", ["修复", "bug", "错误", "失败", "异常", "报错", "崩溃", "fix", "issue"]],
+    ["发布", ["发布", "release", "版本", "构建", "build"]],
+    ["最佳实践", ["最佳实践", "规范", "约定", "建议", "推荐", "准则"]],
+    ["经验", ["经验", "总结", "心得", "复盘"]]
+  ],
+
+  "platform_keywords": {
+    "Windows": ["windows", "win32", "powershell", "cmd", "msbuild", "choco", "winget", ".bat", ".cmd", ".ps1", "路径分隔符\\", "反斜杠", "注册表", "regedit"],
+    "Linux": ["linux", "ubuntu", "debian", "centos", "apt", "yum", "bash", ".sh", "systemd", "cron", "xdg"],
+    "macOS": ["macos", "mac", "darwin", "brew", ".command", "launchd", "keychain"]
+  },
+
+  "severity_keywords": {
+    "高": ["必须", "致命", "关键", "阻断", "严重", "不可"],
+    "低": ["可选", "建议", "轻微", "尽量", "可不必"]
+  },
+
+  "avoidance_headers": [
+    "规避", "避免", "建议", "注意",
+    "解法", "解决", "修复方法",
+    "解决方法", "替代方案", "替代命令", "workaround", "临时方案", "改用", "正确命令"
+  ]
+}
