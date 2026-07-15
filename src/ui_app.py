@@ -32,15 +32,26 @@ path_input = None
 status_label = None
 stats_label = None
 cross_stats_label = None         # 交叉统计（语言×类型）
+# 新版统计面板：4 指标卡 + 3 行 chips
+metric_files = None        # 扫描的 MD 文件数
+metric_total = None         # 抽取出的记录数
+metric_matched = None       # 关键词已匹配记录数
+metric_unmatched = None     # 关键词未匹配记录数
+metric_platforms = None
+chips_types = None
+chips_langs = None
+chips_platforms = None
+chips_unmatched = None  # P2：待识别独立行（语言="通用" 的记录）
 global_search_input = None        # P1-1：全文检索输入框
 filter_container = None
 detail_dialog = None
 meta_md = None
 body_md = None
 _scanning: bool = False           # 重入保护：扫描中禁止再次触发
+_candidate_updating: bool = False  # 重入保护：chip 回调中禁止 clear 容器
 scan_btn = None                   # 扫描按钮引用（用于禁用/启用）
-candidate_container = None        # 候选关键词面板容器
-candidate_label = None            # 候选关键词列表标签（Markdown）
+candidate_container = None        # 候选关键词面板容器（动态重建）
+candidate_actions = None           # 候选操作按钮行（全加载/热加载/重置）
 # P1-2：LLM 抽取 UI 控件
 _llm_enabled_switch = None
 _llm_url_input = None
@@ -67,10 +78,10 @@ def _build_columns() -> List[Dict]:
             col["headerStyle"] = f"width:{f.width};"
             col["style"] = f"width:{f.width};"
         if f.ftype == FieldType.TEXT:
-            # 文本列省略，避免撑破布局；完整内容见详情
+            # 文本列自动换行，显示完整内容（行高自适应）
             col["style"] = (col.get("style", "") +
-                            "max-width:360px;overflow:hidden;text-overflow:ellipsis;"
-                            "white-space:nowrap;")
+                            "max-width:400px;overflow-wrap:break-word;"
+                            "white-space:normal;")
         cols.append(col)
     return cols
 
@@ -160,80 +171,197 @@ def _apply_filters() -> None:
                             continue  # 超过时间范围，跳过
         if ok:
             visible.append(r)
-    table.rows = visible
     _update_stats(visible)
+    table.rows = _flatten_records(visible)
 
 
 def _update_stats(rows: List[Dict]) -> None:
-    """更新顶部统计（总数 + 按类型/语言/平台分布 + 交叉统计）。"""
+    """更新顶部统计：4 个指标卡 + 3 行分类 chips。"""
+    # 1) 统计计数
     type_counts: Dict[str, int] = {}
     lang_counts: Dict[str, int] = {}
     platform_counts: Dict[str, int] = {}
-    cross_counts: Dict[str, Dict[str, int]] = {}  # 语言 × 类型 交叉矩阵
+    cross_counts: Dict[str, Dict[str, int]] = {}
     for r in rows:
         t = r.get("type", "其他")
         type_counts[t] = type_counts.get(t, 0) + 1
         for lg in (r.get("language") or []):
             lang_counts[lg] = lang_counts.get(lg, 0) + 1
-            # 交叉统计：语言 → 类型
             cross_counts.setdefault(lg, {}).setdefault(t, 0)
             cross_counts[lg][t] += 1
         for pl in (r.get("platform") or []):
             platform_counts[pl] = platform_counts.get(pl, 0) + 1
-    type_str = "  ".join(f"{k}:{v}" for k, v in type_counts.items())
-    lang_str = "  ".join(f"{k}:{v}" for k, v in lang_counts.items())
-    plat_str = "  ".join(f"{k}:{v}" for k, v in platform_counts.items())
-    stats_label.text = (
-        f"共 {len(rows)} 篇  |  类型 → {type_str}  |  语言 → {lang_str}  |  平台 → {plat_str}"
-    )
-    # 交叉统计：展示 Top 语言×Top 类型（取覆盖最多的前几项）
-    top_lang = sorted(lang_counts.items(), key=lambda x: -x[1])[:6]
-    if top_lang and cross_stats_label is not None:
-        lines = ["**语言×类型 交叉**："]
-        for lg_name, _ in top_lang:
+
+    # 2) 顶部 4 个指标卡
+    matched = sum(1 for r in rows if r.get("language") != ["通用"])
+    unmatched = len(rows) - matched
+    metric_total.text = f"{len(rows)}"
+    metric_matched.text = f"{matched}"
+    metric_unmatched.text = f"{unmatched}"
+    metric_platforms.text = f"{len(platform_counts)}"
+
+    # 3) 三行 chips（Top N）—— 语言行排除"通用"和"通用（待分类）"（独立显示）
+    _render_chips(chips_types, type_counts, max_n=8, color_map=TYPE_COLOR)
+    matched_langs = {k: v for k, v in lang_counts.items() if k not in ("通用", "通用（待分类）")}
+    _render_chips(chips_langs, matched_langs, max_n=8, color_map=LANG_COLOR)
+    _render_chips(chips_platforms, platform_counts, max_n=6, color_map=PLATFORM_COLOR)
+    # 4) 待识别行（语言="通用" + 待分类统计）
+    unmatched_count = lang_counts.get("通用", 0)
+    pending_count = lang_counts.get("通用（待分类）", 0)
+    if chips_unmatched is not None:
+        chips_unmatched.clear()
+        if unmatched_count > 0:
+            with chips_unmatched:
+                ui.chip(f"⚠ 通用 · {unmatched_count}", removable=False, color="orange").props("dense square")
+                ui.label("（关键词未覆盖）").classes("text-caption text-grey")
+        if pending_count > 0:
+            with chips_unmatched:
+                ui.chip(f"📋 待分类 · {pending_count}", removable=False, color="blue").props("dense square")
+                ui.label(f"（已加载但仍为临时分类）").classes("text-caption text-grey")
+        if unmatched_count == 0 and pending_count == 0:
+            with chips_unmatched:
+                ui.chip("✓ 全部已匹配", removable=False, color="green").props("dense square")
+
+    # 4) 交叉统计：Top3 语言 × 全部类型
+    if cross_stats_label is not None and cross_counts:
+        top3 = sorted(lang_counts.items(), key=lambda x: -x[1])[:3]
+        lines = []
+        for lg_name, _ in top3:
             if lg_name in cross_counts:
-                items = " ".join(f"{t}:{c}" for t, c in cross_counts[lg_name].items())
-                lines.append(f"  {lg_name} → {items}")
-        cross_stats_label.text = "  |  ".join(lines)
+                items = " · ".join(f"{t}:{c}" for t, c in cross_counts[lg_name].items())
+                lines.append(f"**{lg_name}** → {items}")
+        cross_stats_label.content = "<br>".join(lines)
+    elif cross_stats_label is not None:
+        cross_stats_label.content = ""
+
+
+# 颜色映射（NiceGUI chip 颜色名）
+TYPE_COLOR: Dict[str, str] = {
+    "问题": "red", "陷阱": "orange", "最佳实践": "green",
+    "规范": "teal", "经验": "blue", "发布": "purple",
+    "环境配置": "indigo", "命令行": "cyan", "兼容性": "amber",
+    "其他": "grey",
+}
+LANG_COLOR: Dict[str, str] = {
+    "Python": "green", "JavaScript/TS": "yellow", "Go": "cyan",
+    "Rust": "orange", "Shell/Bash": "blue", "PowerShell": "indigo",
+    "Batch/CMD": "purple", "Docker": "teal", "Git/GitHub": "pink",
+    "通用": "grey", "其他": "grey",
+}
+PLATFORM_COLOR: Dict[str, str] = {
+    "Windows": "blue", "Linux": "orange", "macOS": "purple",
+    "跨平台": "grey",
+}
+
+
+def _render_chips(container, counts: Dict[str, int], max_n: int, color_map: Dict[str, str]) -> None:
+    """在给定容器里渲染 chips。"""
+    container.clear()
+    with container:
+        if not counts:
+            ui.chip("（无数据）", removable=False, color="grey").props("dense")
+            return
+        # 按 count 降序，取前 max_n
+        top = sorted(counts.items(), key=lambda x: -x[1])[:max_n]
+        for name, cnt in top:
+            color = color_map.get(name, "primary")
+            chip = ui.chip(f"{name} · {cnt}", removable=False, color=color)
+            chip.props("dense square")
 
 
 def _build_filter_bar() -> None:
-    """依据 SCHEMA 重建筛选栏控件（每次扫描后重算候选）。"""
+    """依据 SCHEMA 重建筛选栏控件（每次扫描后重算候选）。
+
+    紧凑布局：标签+控件水平排列，整体 3 行，q-pa-xs 最小内边距。
+    """
     global project_filter_widget, time_filter_widget
     filter_widgets.clear()
     filter_container.clear()
     with filter_container:
-        with ui.row().classes("flex-wrap gap-2 items-end"):
-            for f in config.SCHEMA:
-                if not f.filterable:
-                    continue
-                if f.ftype == FieldType.SELECT:
-                    w = ui.select(options=f.options, label=f.label, clearable=True)
-                    w.props("dense outlined")
-                elif f.ftype == FieldType.MULTI:
-                    w = ui.select(options=f.options, label=f.label, multiple=True)
-                    w.props("dense outlined multiple use-chips")
-                else:
-                    w = ui.input(label=f"搜索 {f.label}", placeholder="关键字…")
-                    w.props("dense outlined clearable")
-                w.on("update:model-value", lambda *_: _apply_filters())
-                filter_widgets[f.key] = w
-            # P2-5：项目筛选（按 memory 父目录分组，多选）
-            projects = sorted({r.get("source", "").split("/")[0]
-                              for r in records if r.get("source", "")})
-            if projects:
-                project_filter_widget = ui.select(
-                    options=projects, label="项目", multiple=True, clearable=True
-                )
-                project_filter_widget.props("dense outlined multiple use-chips")
-                project_filter_widget.on("update:model-value", lambda *_: _apply_filters())
-            # P2-6：时间范围筛选
-            time_filter_widget = ui.select(
-                options={"all": "全部时间", "7d": "最近 7 天", "30d": "最近 30 天", "90d": "最近 90 天"},
-                label="时间范围", value="all",
-            )
-            time_filter_widget.props("dense outlined")
-            time_filter_widget.on("update:model-value", lambda *_: _apply_filters())
+        with ui.card().classes("w-full q-pa-sm").style("background: #fafbfc"):
+            # ---------- 第 1 行：关键字搜索 ----------
+            with ui.row().classes("w-full gap-3 items-center"):
+                ui.label("🔍").classes("text-body1")
+                for f in config.SCHEMA:
+                    if not f.filterable or f.ftype != FieldType.TEXT:
+                        continue
+                    with ui.row().classes("items-center gap-1"):
+                        ui.label(f.label).classes("text-caption text-grey").style("min-width:50px")
+                        w = ui.input(placeholder="关键字…").props("dense outlined clearable")
+                        w.style("min-width: 130px")
+                        w.on("update:model-value", lambda *_: _apply_filters())
+                        filter_widgets[f.key] = w
+            # ---------- 第 2 行：多选 ----------
+            with ui.row().classes("w-full gap-3 items-center q-mt-xs"):
+                ui.label("🏷️").classes("text-body1")
+                for f in config.SCHEMA:
+                    if not f.filterable or f.ftype != FieldType.MULTI:
+                        continue
+                    with ui.row().classes("items-center gap-1"):
+                        ui.label(f.label).classes("text-caption text-grey").style("min-width:50px")
+                        w = ui.select(options=f.options, multiple=True, clearable=True)
+                        w.props("dense outlined use-chips")
+                        w.style("min-width: 140px")
+                        w.on("update:model-value", lambda *_: _apply_filters())
+                        filter_widgets[f.key] = w
+            # ---------- 第 3 行：单选 + 项目 + 时间 ----------
+            with ui.row().classes("w-full gap-3 items-center q-mt-xs"):
+                ui.label("⚙️").classes("text-body1")
+                for f in config.SCHEMA:
+                    if not f.filterable or f.ftype != FieldType.SELECT:
+                        continue
+                    with ui.row().classes("items-center gap-1"):
+                        ui.label(f.label).classes("text-caption text-grey").style("min-width:50px")
+                        # 头部插入"全部"选项（值为 None = 不筛选）
+                        opts = {None: "全部"}
+                        opts.update({opt: opt for opt in f.options})
+                        w = ui.select(options=opts, value=None)
+                        w.props("dense outlined")
+                        w.style("min-width: 100px")
+                        w.on("update:model-value", lambda *_: _apply_filters())
+                        filter_widgets[f.key] = w
+                # P2-5：项目筛选
+                projects = sorted({r.get("source", "").split("/")[0]
+                                  for r in records if r.get("source", "")})
+                with ui.row().classes("items-center gap-1"):
+                    ui.label("项目").classes("text-caption text-grey").style("min-width:50px")
+                    if projects:
+                        project_filter_widget = ui.select(
+                            options=projects, multiple=True, clearable=True
+                        )
+                        project_filter_widget.props("dense outlined use-chips")
+                    else:
+                        project_filter_widget = ui.select(
+                            options=[], multiple=True, clearable=True
+                        )
+                        project_filter_widget.props("dense outlined use-chips disable")
+                        project_filter_widget.disable()
+                    project_filter_widget.style("min-width: 130px")
+                    project_filter_widget.on("update:model-value", lambda *_: _apply_filters())
+                # P2-6：时间范围
+                with ui.row().classes("items-center gap-1"):
+                    ui.label("时间").classes("text-caption text-grey").style("min-width:50px")
+                    time_filter_widget = ui.select(
+                        options={"all": "全部", "7d": "7天", "30d": "30天", "90d": "90天"},
+                        value="all",
+                    )
+                    time_filter_widget.props("dense outlined")
+                    time_filter_widget.style("min-width: 80px")
+                    time_filter_widget.on("update:model-value", lambda *_: _apply_filters())
+
+
+def _flatten_records(rows: List[Dict]) -> List[Dict]:
+    """将所有 MULTI 字段（list）转为逗号字符串（不改原数据），避免 Quasar 表格崩溃。"""
+    multi_keys = {f.key for f in config.SCHEMA if f.ftype == FieldType.MULTI}
+    result = []
+    for row in rows:
+        copy = dict(row)
+        for key in multi_keys:
+            val = copy.get(key)
+            if isinstance(val, list):
+                copy[key] = ", ".join(str(x) for x in val)
+        result.append(copy)
+    return result
 
 
 def _flatten(v) -> str:
@@ -245,17 +373,24 @@ def _flatten(v) -> str:
 
 def _export_csv() -> None:
     """导出当前表格可见记录为 CSV（含文件路径）并触发下载。"""
-    buf = io.StringIO()
-    # Schema 字段 + _path（便于用户定位原文）
+    if not table or not table.rows:
+        ui.notify("表格无数据可导出", type="warning")
+        return
     fieldnames = [f.key for f in config.SCHEMA] + ["_path"]
+    buf = io.StringIO()
+    # 加 BOM 让 Excel 正确识别 UTF-8
+    buf.write("\ufeff")
     writer = csv.DictWriter(buf, fieldnames=fieldnames, extrasaction="ignore")
     writer.writeheader()
-    for r in (table.rows or []):
+    for r in table.rows:
         row = {f.key: _flatten(r.get(f.key)) for f in config.SCHEMA}
         row["_path"] = r.get("_path", "")
         writer.writerow(row)
-    ui.download(buf.getvalue(), "memoalign.csv", "text/csv")
-    ui.notify("已导出 CSV", type="positive")
+    # 转 bytes 传给 ui.download
+    content = buf.getvalue().encode("utf-8")
+    log.info("CSV导出: 记录数=%d, 字节数=%d", len(table.rows), len(content))
+    ui.download(content, "memoalign.csv", "text/csv; charset=utf-8")
+    ui.notify(f"已导出 CSV：{len(table.rows)} 条记录", type="positive")
 
 
 def _export_xlsx() -> None:
@@ -295,10 +430,13 @@ def _export_xlsx() -> None:
 def _export_md() -> None:
     """按类型分组导出 Markdown 摘要并触发下载。"""
     rows = table.rows or []
+    if not rows:
+        ui.notify("表格无数据可导出", type="warning")
+        return
     groups: Dict[str, List[Dict]] = {}
     for r in rows:
         groups.setdefault(r.get("type", "其他"), []).append(r)
-    lines = ["# MemoAlign 导出摘要", ""]
+    lines = ["# MemoAlign 导出摘要", f"\n共 {len(rows)} 条记录，按类型分组：\n"]
     for typ, items in groups.items():
         lines.append(f"## {typ}（{len(items)}）")
         for r in items:
@@ -306,8 +444,11 @@ def _export_md() -> None:
             av = _flatten(r.get("avoidance"))
             lines.append(f"- **{r.get('content', '')}** 〔{lang}〕 {av}")
         lines.append("")
-    ui.download("\n".join(lines), "memoalign.md", "text/markdown")
-    ui.notify("已导出 Markdown", type="positive")
+    # 转 bytes 给 ui.download
+    content = "\n".join(lines).encode("utf-8")
+    log.info("MD导出: 记录数=%d, 字节数=%d", len(rows), len(content))
+    ui.download(content, "memoalign.md", "text/markdown; charset=utf-8")
+    ui.notify(f"已导出 Markdown：{len(rows)} 条记录", type="positive")
 
 
 def _reset_filters() -> None:
@@ -326,55 +467,265 @@ def _reset_filters() -> None:
     _apply_filters()
 
 
+def _open_dir_browser() -> None:
+    """打开目录浏览器对话框：树形展示 + 上下级导航 + 选中回填。"""
+    # 状态：当前浏览的目录（不依赖全局变量）
+    state = {"current": path_input.value or config.DEFAULT_ROOT}
+    if not os.path.isdir(state["current"]):
+        # 兜底：取父目录，若仍不存在则用 C:\
+        parent = os.path.dirname(state["current"])
+        state["current"] = parent if parent and os.path.isdir(parent) else "C:\\"
+
+    with ui.dialog() as dialog, ui.card().style("min-width: 700px; max-height: 85vh"):
+        ui.label("📁 浏览目录").classes("text-h6 q-mb-sm")
+        # 路径显示
+        nav_label = ui.label().classes("text-body1 text-weight-medium q-mb-sm")
+        # 父目录按钮 + 当前路径
+        nav_row = ui.row().classes("items-center gap-2 w-full q-mb-sm")
+        folder_list = ui.column().classes("w-full").style(
+            "max-height: 50vh; overflow-y: auto; border: 1px solid #e0e0e0; border-radius: 4px; padding: 4px;"
+        )
+
+        def refresh():
+            """刷新当前目录的子目录列表。"""
+            nav_label.text = f"📂 {state['current']}"
+            nav_row.clear()
+            folder_list.clear()
+            with nav_row:
+                # 父目录快捷按钮
+                parent = os.path.dirname(state["current"])
+                if parent and parent != state["current"]:
+                    def go_up():
+                        state["current"] = parent
+                        refresh()
+                    ui.button("⬆ 上级目录", on_click=go_up).props("outline dense")
+                # 常用盘符快捷
+                for drive in ["C:\\", "D:\\", "E:\\"]:
+                    if os.path.isdir(drive) and drive != state["current"]:
+                        ui.button(drive, on_click=lambda _, d=drive: (state.update({"current": d}), refresh())).props("outline dense size=sm")
+            with folder_list:
+                try:
+                    entries = sorted(
+                        [e for e in os.scandir(state["current"])
+                         if e.is_dir() and not e.name.startswith(".")],
+                        key=lambda e: e.name.lower()
+                    )
+                except PermissionError:
+                    ui.label("⚠️ 无权限访问此目录").classes("text-negative")
+                    return
+                except OSError as e:
+                    ui.label(f"⚠️ 读取失败: {e}").classes("text-negative")
+                    return
+                if not entries:
+                    ui.label("（无子目录）").classes("text-grey q-pa-md")
+                for entry in entries[:200]:  # 限制最多 200 个
+                    def go_in(p=entry.path):
+                        state["current"] = p
+                        refresh()
+                    with ui.row().classes(
+                        "w-full items-center cursor-pointer hover:bg-blue-50 q-pa-xs"
+                    ).style("border-radius: 4px;").on("click", go_in):
+                        ui.icon("folder", color="amber")
+                        ui.label(entry.name).classes("text-body2")
+
+        refresh()
+        # 底部按钮
+        with ui.row().classes("w-full justify-end q-mt-md gap-2"):
+            ui.button("取消", on_click=dialog.close).props("flat")
+            def select():
+                path_input.value = state["current"]
+                dialog.close()
+                ui.notify(f"已选择: {state['current']}", type="positive")
+            ui.button("✅ 选择此目录", on_click=select, color="primary")
+    dialog.open()
+
+
 def _open_graph() -> None:
-    """打开图谱视图对话框（P2-1：ECharts 力导向聚类图）。"""
+    """打开图谱视图对话框：treemap / 条形图 两种可切换。"""
     if not records:
         ui.notify("请先扫描以获取数据", type="warning")
         return
     try:
-        option = graph_view.build_graph_option(records)
         with ui.dialog(value=True) as graph_dialog:
             graph_dialog.props("maximized")
-            with ui.card().classes("w-full h-full"):
-                ui.label("知识图谱").classes("text-h6")
-                ui.echart(option).classes("w-full").style("height:75vh")
-                ui.button("关闭", on_click=graph_dialog.close).props("flat")
+            with ui.card().classes("w-full").style("height:92vh"):
+                # ---------- 顶部：标题 + 切换 + 关闭 ----------
+                with ui.row().classes("items-center gap-2 q-mb-sm"):
+                    ui.label("数据图谱").classes("text-h6")
+                    mode_switch = ui.toggle(
+                        options={"treemap": "层级图", "bar": "条形图"},
+                        value="treemap",
+                    ).props("dense")
+                    ui.button("关闭", on_click=graph_dialog.close).props("flat")
+                # ---------- 图表区域（独立，不在 row 内） ----------
+                echart_container = ui.element("div").style("width:100%;height:78vh")
+
+                def refresh_graph():
+                    mode = mode_switch.value or "treemap"
+                    opt = graph_view.build_graph_option(records, mode=mode)
+                    echart_container.clear()
+                    with echart_container:
+                        ui.echart(opt).style("width:100%;height:75vh")
+
+                mode_switch.on("update:model-value", lambda *_: refresh_graph())
+                # 初始渲染
+                with echart_container:
+                    ui.echart(graph_view.build_graph_option(records)).style("width:100%;height:75vh")
     except Exception as exc:
         log.error("图谱渲染失败: %s", exc)
         ui.notify(f"图谱渲染失败: {exc}", type="negative")
 
 
-def _hot_reload_keywords() -> None:
-    """热加载关键词：从 JSON 重新读取，更新内存中 config 模块的全局变量。
-
-    无需重启 NiceGUI 服务，下次抽取自动使用新关键词。
-    """
+async def _hot_reload_keywords() -> None:
+    """热加载关键词：清空缓存 + 重新抽取，让统计数字立即反映新关键词。"""
     try:
         kw_mod.reload()
-        ui.notify("关键词已从文件热加载，下次抽取生效", type="positive")
         log.info("用户触发关键词热加载")
+        from . import store as store_mod
+        store_mod.reset()
+        if records:  # 已有数据 → 自动重扫
+            ui.notify("关键词已热加载，正在重新抽取…", type="info")
+            await run_scan()
+        else:
+            ui.notify("关键词已热加载，请点「扫描」", type="info")
     except Exception as exc:
         ui.notify(f"热加载失败：{exc}", type="negative")
         log.error("热加载失败: %s", exc)
 
 
+async def _reset_keywords_default() -> None:
+    """一键恢复 keywords_data.json 到 git 版本并热加载 + 自动重扫。"""
+    import subprocess
+    from pathlib import Path
+    repo = Path(__file__).parent.parent
+    try:
+        result = subprocess.run(
+            ["git", "checkout", "--", "src/keywords_data.json"],
+            cwd=str(repo), capture_output=True, text=True, timeout=10,
+        )
+        if result.returncode != 0:
+            ui.notify(f"恢复失败: {result.stderr.strip()}", type="negative")
+            return
+        kw_mod.reload()
+        log.info("用户触发关键词恢复为默认")
+        from . import store as store_mod
+        store_mod.reset()
+        if records:
+            ui.notify("关键词已恢复，正在重新抽取…", type="info")
+            await run_scan()
+        else:
+            ui.notify("关键词已恢复为默认", type="positive")
+    except FileNotFoundError:
+        ui.notify("未找到 Git，请确认已安装", type="negative")
+    except Exception as exc:
+        ui.notify(f"恢复异常: {exc}", type="negative")
+        log.error("恢复关键词失败: %s", exc)
+
+
 def _refresh_candidates() -> None:
-    """刷新候选关键词面板：从 discovery 缓存读取并渲染。"""
-    if candidate_label is None or candidate_container is None:
+    """刷新候选关键词面板：操作按钮在独立行（不被 clear 影响）。"""
+    global _candidate_updating
+    if candidate_container is None or candidate_actions is None:
+        return
+    # 防止 chip 回调内部 clear 导致"parent element deleted"
+    if _candidate_updating:
         return
     candidates = discovery.get_candidates()
-    if not candidates:
-        candidate_container.style("display:none")
-        return
+    candidate_actions.clear()
+    candidate_actions.style("display:flex")
+    # 操作按钮行（独立，不会被候选面板 clear 删除）
+    with candidate_actions:
+        ui.button("全加载", on_click=_add_all_candidates, icon="download").props("dense outline color=orange")
+        ui.button("清空待分类", on_click=_clear_pending_keywords).props("dense outline")
+        ui.button("热加载", on_click=_hot_reload_keywords).props("dense")
+        ui.button("重置", on_click=_reset_keywords_default).props("dense outline")
+        if not candidates:
+            ui.icon("check_circle", color="green", size="sm")
+            ui.label("✅ 全部关键词已匹配").classes("text-body2 text-positive")
+    # 候选面板：只放 chips
     candidate_container.style("display:block")
-    # 构建候选列表 Markdown（词 + 频次 + 添加按钮？Markdown 不支持按钮，
-    # 先用文本展示，后续可升级为可交互列表）
-    lines = [f"### 🔍 候选关键词（共 {len(candidates)} 个）",
-             "> 以下技术术语在扫描中未被现有词库覆盖，可编辑 `src/keywords_data.json` 手动添加。",
-             ""]
-    for word, freq in candidates[:20]:  # 展示 top 20
-        lines.append(f"- `{word}`（出现 {freq} 次）")
-    candidate_label.set_content("\n".join(lines))
+    candidate_container.clear()
+    if candidates:
+        with candidate_container:
+            with ui.row().classes("items-center gap-2"):
+                ui.icon("lightbulb", color="orange", size="sm")
+                ui.label(f"候选关键词（{len(candidates)} 个）— 点击加入词库").classes("text-body2 text-weight-medium")
+            with ui.row().classes("w-full gap-1 flex-wrap q-mt-xs"):
+                for word, freq in candidates[:30]:
+                    label = f"{word}({freq})"
+                    chip = ui.chip(label, removable=True, color="orange")
+                    chip.props("dense square clickable")
+                    chip.on("remove", lambda w=word: _add_candidate_keyword(w))
+                    chip.on("click", lambda w=word: _add_candidate_keyword(w))
+    log.info("候选面板已刷新: %d关键词", len(candidates))
+
+
+async def _add_candidate_keyword(word: str) -> None:
+    """将候选关键词加入默认分类并热加载 + 重扫。"""
+    global _candidate_updating
+    _candidate_updating = True
+    try:
+        ok = kw_mod.add_keyword("language_keywords", "通用（待分类）", word)
+        if ok:
+            kw_mod.reload()
+            from . import store as store_mod
+            store_mod.reset()
+            await run_scan()
+            ui.notify(f"已添加关键词并重扫: {word}", type="positive")
+        else:
+            ui.notify(f"关键词已存在: {word}", type="warning")
+    except Exception as exc:
+        ui.notify(f"添加失败: {exc}", type="negative")
+        log.error("添加候选关键词失败: %s", exc)
+    finally:
+        _candidate_updating = False
+        _refresh_candidates()  # 安全更新面板（chip 回调已结束）
+
+
+async def _add_all_candidates() -> None:
+    """一键加载所有候选词：先清旧批、再写入新批、自动重扫。"""
+    global _candidate_updating
+    candidates = discovery.get_candidates()
+    if not candidates:
+        ui.notify("没有候选关键词", type="warning")
+        return
+    _candidate_updating = True
+    try:
+        kw_mod.clear_category("language_keywords", "通用（待分类）")
+        added = 0
+        for word, _ in candidates:
+            if kw_mod.add_keyword("language_keywords", "通用（待分类）", word):
+                added += 1
+        kw_mod.reload()
+        from . import store as store_mod
+        store_mod.reset()
+        await run_scan()
+        ui.notify(f"已加载 {added} 个关键词，已匹配↑ 待识别↓", type="positive")
+        log.info("全加载候选关键词: %d个", added)
+    except Exception as exc:
+        ui.notify(f"加载失败: {exc}", type="negative")
+        log.error("全加载候选关键词失败: %s", exc)
+    finally:
+        _candidate_updating = False
+        _refresh_candidates()
+
+
+async def _clear_pending_keywords() -> None:
+    """一键清空"通用（待分类）"分类下的所有关键词，并重扫。"""
+    try:
+        removed = kw_mod.clear_category("language_keywords", "通用（待分类）")
+        # 立即清空候选缓存与面板，给用户即时反馈
+        discovery.reset_candidates()
+        _refresh_candidates()
+        from . import store as store_mod
+        store_mod.reset()
+        await run_scan()
+        ui.notify(f"已清空'待分类'，移除 {removed} 个关键词并重扫", type="positive")
+        log.info("清空待分类关键词: 移除%d个", removed)
+    except Exception as exc:
+        ui.notify(f"清空失败: {exc}", type="negative")
+        log.error("清空待分类失败: %s", exc)
+
 
 
 def _update_llm_config() -> None:
@@ -442,20 +793,23 @@ async def _batch_llm_re_extract() -> None:
                     mtime=os.path.getmtime(meta_path),
                     size=os.path.getsize(meta_path),
                 )
-                rec = extractor.extract(meta, force_llm=True)
-                store.put(cache, meta, rec)
-                rec["id"] = r.get("id", i + 1)
-                records[i] = rec
+                new_records = extractor.extract(meta, force_llm=True)
+                if not new_records:
+                    continue
+                store.put_all(cache, meta, new_records)
+                # LLM 模式：只替换第 1 条；其余保持原样
+                new_records[0]["id"] = r.get("id", i + 1)
+                records[i] = new_records[0]
             except Exception as exc:
                 log.warning("LLM 重抽异常（跳过该条）: %s\n%s", meta_path, traceback.format_exc())
             if (i + 1) % 3 == 0:
                 status_label.text = f"LLM 重抽中… {i + 1}/{total}"
-                await asyncio.sleep(0)
+                await asyncio.sleep(0.1)
 
         store.save_cache(cache)
         _build_filter_bar()
-        table.rows = records
         _update_stats(records)
+        table.rows = _flatten_records(records)
         status_label.text = f"LLM 重抽完成 · 共 {len(records)} 篇"
         ui.notify(f"LLM 重抽完成，共 {len(records)} 篇", type="positive")
         log.info("LLM 批量重抽结束: 成功=%d", len(records))
@@ -486,31 +840,40 @@ async def run_scan() -> None:
         root = (path_input.value or "").strip() or config.DEFAULT_ROOT
         if not os.path.isdir(root):
             ui.notify(f"目录不存在：{root}", type="negative")
+            status_label.text = "就绪 · 目录不存在"
+            _scanning = False
+            if scan_btn is not None:
+                scan_btn.enable()
             return
 
+        ui.notify("开始扫描…", type="info")
         status_label.text = "扫描中…"
         table.rows = []
         records.clear()
-        discovery.reset_candidates()  # 每次扫描前清空旧候选词
+        discovery.reset_candidates()
+        # 强制清空文件缓存，确保抽取逻辑变更后不会读到旧缓存（导致候选发现不执行）
+        store.reset()
+        await asyncio.sleep(0.1)
 
         cache = store.load_cache()
         metas = scanner.scan_memory_md(root)
         total = len(metas)
+        # 更新"文件"指标（仅在首次/重置扫描时设置，不被筛选过滤）
+        if metric_files is not None:
+            metric_files.text = f"{total}"
         log.info("开始扫描: root=%s, 文件数=%d", root, total)
 
         for i, meta in enumerate(metas, 1):
             try:
                 if store.needs_update(meta, cache):
-                    rec = extractor.extract(meta)
-                    store.put(cache, meta, rec)
+                    file_records = extractor.extract(meta)
+                    store.put_all(cache, meta, file_records)
                 else:
-                    rec = {k: v for k, v in cache[meta.path].items() if k != "__mtime"}
-                    # 缓存命中：将 _raw_preview 映射回 _raw（缓存瘦身后原文为预览截断）
-                    raw_val = rec.pop("_raw_preview", "") if "_raw_preview" in rec else rec.get("_raw", "")
-                    rec["_raw"] = raw_val
-                rec["id"] = i
-                rec["_mtime"] = meta.mtime  # P2-6：时间范围筛选需要 mtime
-                records.append(rec)
+                    file_records = store.get_cached_records(meta, cache)
+                for j, rec in enumerate(file_records):
+                    rec["id"] = i + j
+                    rec["_mtime"] = meta.mtime
+                    records.append(rec)
             except Exception as exc:
                 log.error("处理文件异常，已跳过: %s\n%s", meta.path, traceback.format_exc())
                 placeholder = {f.key: (["通用"] if f.ftype == FieldType.MULTI else
@@ -521,13 +884,13 @@ async def run_scan() -> None:
                 records.append(placeholder)
             if i % 5 == 0:
                 status_label.text = f"扫描中 {i}/{total}"
-                await asyncio.sleep(0)
+                await asyncio.sleep(0.1)
 
         store.save_cache(cache)
         _build_filter_bar()
-        table.rows = records
         _update_stats(records)
-        _refresh_candidates()  # 展示候选关键词
+        _refresh_candidates()
+        table.rows = _flatten_records(records)
         status_label.text = f"就绪 · 共 {len(records)} 篇"
         ui.notify(f"扫描完成，共 {len(records)} 篇", type="positive")
         log.info("扫描结束: 记录数=%d", len(records))
@@ -537,11 +900,14 @@ async def run_scan() -> None:
             scan_btn.enable()
 
 
+@ui.page("/")
 def create_ui() -> None:
-    """构建页面布局（在 ui.run 之前调用一次）。"""
+    """构建页面布局（@ui.page 装饰器注册为根路由 "/"，由 NiceGUI 按需调用）。"""
     global path_input, status_label, stats_label, filter_container, table
     global detail_dialog, meta_md, body_md, scan_btn
-    global candidate_container, candidate_label, cross_stats_label, global_search_input
+    global candidate_container, candidate_actions, cross_stats_label, global_search_input
+    global metric_files, metric_total, metric_matched, metric_unmatched, metric_platforms
+    global chips_types, chips_langs, chips_platforms, chips_unmatched
     global _llm_enabled_switch, _llm_url_input, _llm_key_input, _llm_model_input, _llm_status_label
 
     # 标题栏
@@ -554,8 +920,8 @@ def create_ui() -> None:
         with ui.row().classes("items-end gap-2 w-full"):
             path_input = ui.input("扫描根目录", value=config.DEFAULT_ROOT).props(
                 "outlined clearable").classes("grow")
+            ui.button("📁 浏览", on_click=_open_dir_browser).props("outline")
             scan_btn = ui.button("扫描", on_click=run_scan)
-            ui.button("热加载关键词", on_click=_hot_reload_keywords)
             ui.button("图谱视图", on_click=_open_graph)
             ui.button("重置筛选", on_click=_reset_filters)
             ui.button("导出 CSV", on_click=_export_csv)
@@ -590,29 +956,68 @@ def create_ui() -> None:
                 ).props("outlined dense").classes("grow")
                 ui.button("批量 LLM 重抽", on_click=_batch_llm_re_extract).props("outline")
 
-    # 统计栏
-    with ui.card().classes("w-full q-pa-sm"):
-        stats_label = ui.label("共 0 篇").classes("text-body2")
-        cross_stats_label = ui.label("").classes("text-caption text-grey")
+    # 统计面板：4 指标 + 3 行 chips（紧凑布局）
+    with ui.card().classes("w-full q-pa-sm").style("background: #fafbfc"):
+        with ui.row().classes("w-full gap-4 items-center"):
+            for icon, label, ref_name, color in [
+                ("folder", "文件", "metric_files", "blue"),
+                ("article", "总数", "metric_total", "primary"),
+                ("check_circle", "已匹配", "metric_matched", "green"),
+                ("warning", "待识别", "metric_unmatched", "orange"),
+                ("devices", "平台", "metric_platforms", "primary"),
+            ]:
+                with ui.row().classes("items-center gap-2").style("min-width: 100px"):
+                    ui.icon(icon, color=color, size="sm")
+                    with ui.column().classes("gap-0"):
+                        ui.label(label).classes("text-caption text-grey").style("line-height:1; margin:0")
+                        val_label = ui.label("0").classes("text-h6 text-weight-bold").style("line-height:1.1")
+                        if ref_name == "metric_files":
+                            metric_files = val_label
+                        elif ref_name == "metric_total":
+                            metric_total = val_label
+                        elif ref_name == "metric_matched":
+                            metric_matched = val_label
+                        elif ref_name == "metric_unmatched":
+                            metric_unmatched = val_label
+                        else:
+                            metric_platforms = val_label
+            # 右侧 chips 区域（占满剩余空间）
+            with ui.column().classes("col gap-0"):
+                with ui.row().classes("items-center gap-1"):
+                    ui.label("类型").classes("text-caption text-grey").style("min-width:32px")
+                    chips_types = ui.row().classes("gap-1")
+                with ui.row().classes("items-center gap-1"):
+                    ui.label("语言").classes("text-caption text-grey").style("min-width:32px")
+                    chips_langs = ui.row().classes("gap-1")
+                with ui.row().classes("items-center gap-1"):
+                    ui.label("平台").classes("text-caption text-grey").style("min-width:32px")
+                    chips_platforms = ui.row().classes("gap-1")
+                # 待识别行（语言="通用" 的记录，关键词未覆盖）
+                with ui.row().classes("items-center gap-1"):
+                    ui.label("待识别").classes("text-caption text-grey").style("min-width:32px")
+                    chips_unmatched = ui.row().classes("gap-1")
+        # 交叉统计（语言 × 类型）— 单独一行
+        cross_stats_label = ui.markdown("").classes("text-caption q-mt-xs")
 
-    # 候选关键词面板（初始隐藏，扫描后如有候选则显示）
-    candidate_container = ui.card().classes("w-full q-pa-md").style("display:none")
-    with candidate_container:
-        ui.label("候选关键词词库").classes("text-subtitle1 text-weight-bold")
-        ui.label("扫描时发现未被现有词库覆盖的技术术语，可编辑 src/keywords_data.json 手动添加").classes("text-caption text-grey")
-        candidate_label = ui.markdown()
-
+    # 候选操作行（全加载/热加载/重置 — 独立于面板，不会被 clear 删除）
+    candidate_actions = ui.row().classes("w-full q-px-sm q-py-xs items-center gap-2").style("display:none")
+    # 候选关键词面板（扫描后显示，有候选→chips，无候选→绿色完成提示）
+    candidate_container = ui.card().classes("w-full q-pa-sm").style("display:none; background:#fff8e1")
     # 筛选栏容器
     filter_container = ui.element("div").classes("w-full")
 
-    # 表格容器（可滚动）
-    with ui.card().classes("w-full q-pa-none").style("max-height:62vh;overflow:auto"):
+    # 表格容器：sticky header + 表格内置滚动，保证表头与列严格对齐
+    with ui.card().classes("w-full q-pa-none"):
         table = ui.table(
             columns=_build_columns(),
             rows=[],
             row_key="id",
-            pagination={"rowsPerPage": 0, "page": 1},
-        ).props("flat bordered separator=cell dense wrap-cells").classes("w-full")
+            pagination={"rowsPerPage": 50, "page": 1, "rowsPerPageOptions": [20, 50, 100, 0]},
+        ).props(
+            "flat bordered separator=cell dense wrap-cells "
+            "sticky-header "
+            "table-style='max-height:62vh'"
+        ).classes("w-full")
         table.on("rowClick", _on_row_click)
 
     # 详情对话框（一次构建，复用）

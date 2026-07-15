@@ -20,11 +20,13 @@ _DATA_FILE: str = os.path.join(os.path.dirname(__file__), "keywords_data.json")
 
 def _load_raw() -> dict:
     """从 JSON 文件读取原始关键词数据（异常隔离）。"""
+    log.debug("_load_raw 入口 | file=%s", _DATA_FILE)
     try:
         with open(_DATA_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
         if not isinstance(data, dict):
             raise ValueError("JSON 顶层结构异常")
+        log.debug("_load_raw 出口 | sections=%d", len(data))
         return data
     except Exception as exc:
         log.error("读取关键词数据文件失败: %s\n%s", _DATA_FILE, traceback.format_exc())
@@ -164,3 +166,20 @@ def add_keyword(section: str, category: str, keyword: str) -> bool:
     except Exception as exc:
         log.error("添加关键词失败: %s\n%s", exc, traceback.format_exc())
         return False
+
+
+def clear_category(section: str, category: str) -> int:
+    """清空某个分类下的所有关键词（用于撤销批量添加）。"""
+    try:
+        data = _load_raw()
+        if section not in data or category not in data.get(section, {}):
+            return 0
+        count = len(data[section][category])
+        del data[section][category]
+        _save_raw(data)
+        reload()
+        log.info("已清空分类: section=%s category=%s, 移除=%d个", section, category, count)
+        return count
+    except Exception as exc:
+        log.error("清空分类失败: %s\n%s", exc, traceback.format_exc())
+        return 0

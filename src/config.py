@@ -94,14 +94,14 @@ SEVERITY_OPTIONS: List[str] = ["高", "中", "低"]
 PLATFORM_OPTIONS: List[str] = ["Windows", "Linux", "macOS", "跨平台"]
 
 SCHEMA: List[FieldDef] = [
-    FieldDef("content", "内容", FieldType.TEXT, width="26%", extractor="content"),
-    FieldDef("language", "语言范畴", FieldType.MULTI, width="10%", options=LANG_OPTIONS, extractor="language"),
-    FieldDef("platform", "平台", FieldType.MULTI, width="8%", options=PLATFORM_OPTIONS, extractor="platform"),
-    FieldDef("type", "类型", FieldType.SELECT, width="8%", options=TYPE_OPTIONS, extractor="type"),
-    FieldDef("avoidance", "规避方法", FieldType.TEXT, width="20%", extractor="avoidance"),
-    FieldDef("severity", "严重度", FieldType.SELECT, width="6%", options=SEVERITY_OPTIONS, extractor="severity"),
-    FieldDef("source", "来源", FieldType.TEXT, width="12%", extractor="source"),
-    FieldDef("tags", "标签", FieldType.MULTI, width="10%", extractor="tags"),
+    FieldDef("source", "来源", FieldType.TEXT, width="24%", extractor="source"),
+    FieldDef("content", "内容", FieldType.TEXT, width="22%", extractor="content"),
+    FieldDef("avoidance", "规避方法", FieldType.TEXT, width="18%", extractor="avoidance"),
+    FieldDef("language", "语言范畴", FieldType.MULTI, width="8%", options=LANG_OPTIONS, extractor="language"),
+    FieldDef("platform", "平台", FieldType.MULTI, width="7%", options=PLATFORM_OPTIONS, extractor="platform"),
+    FieldDef("type", "类型", FieldType.SELECT, width="7%", options=TYPE_OPTIONS, extractor="type"),
+    FieldDef("severity", "严重度", FieldType.SELECT, width="5%", options=SEVERITY_OPTIONS, extractor="severity"),
+    FieldDef("tags", "标签", FieldType.MULTI, width="9%", extractor="tags"),
 ]
 
 # 主键字段（用于详情定位与去重）

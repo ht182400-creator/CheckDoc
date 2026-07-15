@@ -32,10 +32,14 @@ class FileMeta:
 
 def _iter_memory_dirs(root: str):
     """生成器：递归产出所有名为 MEMORY_DIR_NAME 的目录（异常隔离）。"""
+    log.debug("_iter_memory_dirs 入口 | root=%s", root)
+    count = 0
     for dirpath, dirnames, _ in os.walk(root):
         # 异常隔离：跳过无权限目录
         if config.MEMORY_DIR_NAME in dirnames:
             yield os.path.join(dirpath, config.MEMORY_DIR_NAME)
+            count += 1
+    log.debug("_iter_memory_dirs 出口 | 命中目录数=%d", count)
 
 
 def scan_memory_md(root: str) -> List[FileMeta]:
