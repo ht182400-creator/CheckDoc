@@ -1,0 +1,169 @@
+{
+  "_version": "2.0",
+  "_description": "MemoAlign 全量测试数据库——覆盖 139 个用例中可 JSON 化的 ~128 项",
+  "_updated": "2026-07-15",
+
+  "scanner": [
+    {"id":"S001","name":"正常2文件","category":"正常","files":[["A/memory/x.md","#X"],["B/memory/y.md","#Y"]],"expected":{"count":2}},
+    {"id":"S002","name":"无memory子目录","category":"边界","files":[["A/docs/x.md","#X"]],"expected":{"count":0}},
+    {"id":"S003","name":"空根目录","category":"边界","files":[],"expected":{"count":0}},
+    {"id":"S004","name":"非MD扩展名过滤","category":"正常","files":[["A/memory/a.txt","t"],["A/memory/b.md","#B"]],"expected":{"count":1,"name":"b"}},
+    {"id":"S005","name":".markdown识别","category":"正常","files":[["A/memory/a.markdown","#A\nc"]],"expected":{"count":1}},
+    {"id":"S006","name":"跳过子目录","category":"边界","files":[["A/memory/a.md","#A"]],"dirs":["A/memory/subdir"],"expected":{"count":1}},
+    {"id":"S007","name":"空memory目录","category":"边界","files":[],"dirs":["A/memory"],"expected":{"count":0}},
+    {"id":"S008","name":"嵌套memory","category":"正常","files":[["A/memory/a.md","#A"],["A/B/memory/b.md","#B"]],"expected":{"count":2}},
+    {"id":"S009","name":"按路径排序","category":"正常","files":[["B/memory/b.md","#B"],["A/memory/a.md","#A"]],"expected":{"sorted":true}},
+    {"id":"S010","name":"不存在根目录","category":"异常","root":"/nonexistent_xyz/","expected":{"count":0}}
+  ],
+
+  "extractor_unit": [
+    {"id":"EU01","name":"_first_heading正常","category":"正常","func":"_first_heading","args":["## Hi\nc","fb"],"expected":"Hi"},
+    {"id":"EU02","name":"_first_heading空#","category":"边界","func":"_first_heading","args":["# \nc","fallback"],"expected":"fallback"},
+    {"id":"EU03","name":"_first_heading无#","category":"边界","func":"_first_heading","args":["no heading","fb"],"expected":"fb"},
+    {"id":"EU04","name":"_first_heading空文本","category":"边界","func":"_first_heading","args":["","empty"],"expected":"empty"},
+    {"id":"EU05","name":"_first_heading_Null回退","category":"边界","func":"_first_heading","args":["no h",null],"expected":null},
+    {"id":"EU06","name":"_detect_language命中Python","category":"正常","func":"_detect_language","args":["use python and pip"],"expected":{"contains":["Python"]}},
+    {"id":"EU07","name":"_detect_language无命中","category":"边界","func":"_detect_language","args":["纯中文"],"expected":{"eq":["通用"]}},
+    {"id":"EU08","name":"_detect_language多命中","category":"正常","func":"_detect_language","args":["python bash docker"],"expected":{"contains":["Python","Shell/Bash","Docker"]}},
+    {"id":"EU09","name":"_detect_language空文本","category":"边界","func":"_detect_language","args":[""],"expected":{"eq":["通用"]}},
+    {"id":"EU10","name":"_detect_type陷阱","category":"正常","func":"_detect_type","args":["坑 避坑 踩坑"],"expected":"陷阱"},
+    {"id":"EU11","name":"_detect_type命令行","category":"正常","func":"_detect_type","args":["命令执行失败退出码"],"expected":"命令行"},
+    {"id":"EU12","name":"_detect_type环境配置","category":"正常","func":"_detect_type","args":["安装依赖环境变量PATH未配置"],"expected":"环境配置"},
+    {"id":"EU13","name":"_detect_type兼容性","category":"正常","func":"_detect_type","args":["跨平台编码gbk"],"expected":"兼容性"},
+    {"id":"EU14","name":"_detect_type问题","category":"正常","func":"_detect_type","args":["修复bug错误异常报错"],"expected":"问题"},
+    {"id":"EU15","name":"_detect_type发布","category":"正常","func":"_detect_type","args":["发布release版本构建build"],"expected":"发布"},
+    {"id":"EU16","name":"_detect_type最佳实践","category":"正常","func":"_detect_type","args":["最佳实践规范约定建议"],"expected":"最佳实践"},
+    {"id":"EU17","name":"_detect_type经验","category":"正常","func":"_detect_type","args":["经验总结心得复盘"],"expected":"经验"},
+    {"id":"EU18","name":"_detect_type空","category":"边界","func":"_detect_type","args":[""],"expected":"其他"},
+    {"id":"EU19","name":"_detect_type无匹配","category":"边界","func":"_detect_type","args":["这是一段没有类型的文字"],"expected":"其他"},
+    {"id":"EU20","name":"_detect_type优先级break","category":"正常","func":"_detect_type","args":["执行失败导致错误"],"expected":"命令行"},
+    {"id":"EU21","name":"_detect_severity高","category":"正常","func":"_detect_severity","args":["必须致命关键阻断严重"],"expected":"高"},
+    {"id":"EU22","name":"_detect_severity低","category":"正常","func":"_detect_severity","args":["可选建议轻微尽量"],"expected":"低"},
+    {"id":"EU23","name":"_detect_severity中","category":"正常","func":"_detect_severity","args":["普通"],"expected":"中"},
+    {"id":"EU24","name":"_detect_severity空","category":"边界","func":"_detect_severity","args":[""],"expected":"中"},
+    {"id":"EU25","name":"_detect_severity高优先于低","category":"正常","func":"_detect_severity","args":["必须注意但可选"],"expected":"高"},
+    {"id":"EU26","name":"_detect_platform_Windows","category":"正常","func":"_detect_platform","args":["Windows PowerShell"],"expected":{"eq":["Windows"]}},
+    {"id":"EU27","name":"_detect_platform_Linux","category":"正常","func":"_detect_platform","args":["bash ubuntu"],"expected":{"eq":["Linux"]}},
+    {"id":"EU28","name":"_detect_platform_macOS","category":"正常","func":"_detect_platform","args":["mac brew 安装"],"expected":{"eq":["macOS"]}},
+    {"id":"EU29","name":"_detect_platform多平台","category":"正常","func":"_detect_platform","args":["Windows and Linux both work"],"expected":{"contains":["Windows","Linux"]}},
+    {"id":"EU30","name":"_detect_platform空","category":"边界","func":"_detect_platform","args":[""],"expected":{"eq":["跨平台"]}},
+    {"id":"EU31","name":"_detect_platform通用","category":"边界","func":"_detect_platform","args":["通用Python代码"],"expected":{"eq":["跨平台"]}},
+    {"id":"EU32","name":"_extract_section正常","category":"正常","func":"_extract_section","args":["# 无关\n## 规避方法\n应该这样","规避"],"expected":{"contains":"应该这样"}},
+    {"id":"EU33","name":"_extract_section无匹配","category":"边界","func":"_extract_section","args":["# 标题\n内容","规避"],"expected":""},
+    {"id":"EU34","name":"_extract_section空文本","category":"边界","func":"_extract_section","args":["","规避"],"expected":""},
+    {"id":"EU35","name":"_extract_section空headers","category":"边界","func":"_extract_section","args":["# 标题",""],"expected":""},
+    {"id":"EU36","name":"_extract_section_collecting标志","category":"正常","func":"_extract_section","args":["# 问题\nx\n## 解决\n方案A\n## 注意\n方案B","解决,注意"],"expected":{"contains":"方案A"}},
+    {"id":"EU37","name":"_extract_avoidance小节","category":"正常","func":"_extract_avoidance","args":"# 问题\n## 规避方法\n使用asyncio","expected":{"contains":"asyncio"}},
+    {"id":"EU38","name":"_extract_avoidance代码块","category":"正常","func":"_extract_avoidance","args":"# 构建\n```bash\nrm -rf dist\nnpm run build\n```","expected":{"contains":"rm -rf dist"}},
+    {"id":"EU39","name":"_extract_avoidance行内","category":"正常","func":"_extract_avoidance","args":"# 权限\n解决方法: sudo chmod 755","expected":{"contains":"sudo chmod"}},
+    {"id":"EU40","name":"_extract_avoidance散列","category":"正常","func":"_extract_avoidance","args":"# 注意\n避免+拼接，建议join","expected":{"contains":"避免"}},
+    {"id":"EU41","name":"_extract_avoidance空","category":"边界","func":"_extract_avoidance","args":"","expected":""}
+  ],
+
+  "extractor_pipeline": [
+    {"id":"EP01","name":"Python陷阱全链路","category":"回归","file":["P/memory/py.md","# Python 异步陷阱\n协程中误用阻塞调用。\n## 规避方法\n使用 asyncio.to_thread。"],"expected":{"language_contains":["Python"],"type":"陷阱","avoidance_contains":"asyncio","source":"P/py"}},
+    {"id":"EP02","name":"Batch+PowerShell+Windows","category":"回归","file":["W/memory/cmd.md","# 构建缓存\nrmdir /s /q dist\\renderer\n## 规避\nPowerShell Remove-Item。"],"expected":{"language_contains":["Batch/CMD","PowerShell"],"platform_contains":["Windows"]}},
+    {"id":"EP03","name":"Docker环境配置","category":"回归","file":["D/memory/docker.md","# Docker 环境\ndocker compose up 启动，注意镜像版本过老安装失败。\n## 解决方法\n改用 python:3.11-slim。"],"expected":{"language_contains":["Docker"],"type":"环境配置"}},
+    {"id":"EP04","name":"Git/GitHub检测","category":"回归","file":["G/memory/git.md","# Git 提交\n每次 commit 前 hook，不需要文件加入 .gitignore。\n## 注意\ngit push 前先 git pull --rebase。"],"expected":{"language_contains":["Git/GitHub"]}},
+    {"id":"EP05","name":"跨平台兼容性","category":"回归","file":["X/memory/encoding.md","# 跨平台换行符\nWindows CRLF Linux LF diff 异常。\n## 规避\ngit config core.autocrlf input。"],"expected":{"type":"兼容性"}},
+    {"id":"EP06","name":"PowerShell场景","category":"回归","file":["E/memory/pwsh.md","# 上传脚本\n_release.mjs PowerShell版 Set-ExecutionPolicy。\n## 注意\nOut-File cmdlet 会报错。"],"expected":{"language_contains":["PowerShell","JavaScript/TS"]}},
+    {"id":"EP07","name":"纯中文回落","category":"边界","file":["A/memory/cn.md","# 纯中文文档\n只有中文没有英文。"],"expected":{"language_eq":["通用"],"platform_eq":["跨平台"]}},
+    {"id":"EP08","name":"空文件","category":"边界","file":["A/memory/e.md",""],"expected":{"_truncated":false,"content":"e"}},
+    {"id":"EP09","name":"单字符","category":"边界","file":["A/memory/x.md","X"],"expected":{"content":"x"}},
+    {"id":"EP10","name":"纯空白","category":"边界","file":["A/memory/blank.md","   \n\n\t  \r\n"],"expected":{"works":true}},
+    {"id":"EP11","name":"中英混合","category":"边界","file":["A/memory/mix.md","# 混合\n用 python 配合 awk 解析，docker 部署。"],"expected":{"language_contains":["Python","Shell/Bash","Docker"]}},
+    {"id":"EP12","name":"Unicode+Emoji","category":"边界","file":["A/memory/emoji.md","# 😀\n有 🐍 Python 和 🐳 Docker"],"expected":{"language_contains":["Python","Docker"]}},
+    {"id":"EP13","name":"特殊字符文件名","category":"边界","file":["A/memory/test (副本).md","# 特殊\n内容。"],"expected":{"source_contains":"test (副本)"}},
+    {"id":"EP14","name":"全字段完整性","category":"回归","file":["A/memory/all.md","# 完整\npython docker bash"],"expected":{"has_all_schema":true}},
+    {"id":"EP15","name":"GBK编码容错","category":"异常","encoding":"gbk","file":["A/memory/gbk.md","# 测试\n中文内容"],"expected":{"_raw_len_gt":0}},
+    {"id":"EP16","name":"force_llm无密钥抛异常","category":"异常","file":["L/memory/llm.md","# LLM\nc"],"force_llm":true,"expected":{"raises":"RuntimeError"}},
+    {"id":"EP17","name":"无标题回落文件名","category":"边界","file":["A/memory/noh.md","第一行不是标题"],"expected":{"content":"noh"}}
+  ],
+
+  "store": [
+    {"id":"ST01","name":"缓存缺失→{}","category":"异常","op":"load_cache_missing","expected":{}},
+    {"id":"ST02","name":"损坏JSON→{}","category":"异常","op":"load_cache_corrupted","cache_content":"{ not json","expected":{}},
+    {"id":"ST03","name":"非字典JSON→{}","category":"异常","op":"load_cache_not_dict","cache_content":"[1,2,3]","expected":{}},
+    {"id":"ST04","name":"无缓存需更新","category":"正常","op":"needs_update","mtime":1.0,"cache_mtime":null,"expected":true},
+    {"id":"ST05","name":"mtime不同需更新","category":"正常","op":"needs_update","mtime":2.0,"cache_mtime":1.0,"expected":true},
+    {"id":"ST06","name":"mtime相同不更新","category":"正常","op":"needs_update","mtime":1.0,"cache_mtime":1.0,"expected":false},
+    {"id":"ST07","name":"put去_raw","category":"正常","op":"put_slim","expected":{"no_raw":true,"has_preview":true}},
+    {"id":"ST08","name":"缓存完整流程","category":"正常","op":"full_flow","expected":true},
+    {"id":"ST09","name":"reset删除文件","category":"正常","op":"reset_remove","expected":{"file_deleted":true}},
+    {"id":"ST10","name":"reset无文件不报错","category":"异常","op":"reset_safe","expected":true}
+  ],
+
+  "keywords": [
+    {"id":"K01","name":"load_language含Python","category":"正常","func":"load_language_keywords","expected":{"contains_key":"Python"}},
+    {"id":"K02","name":"load_type是列表","category":"正常","func":"load_type_keywords","expected":{"is_list":true,"len_gt":0}},
+    {"id":"K03","name":"load_platform含Windows","category":"正常","func":"load_platform_keywords","expected":{"contains_key":"Windows"}},
+    {"id":"K04","name":"load_severity有高和低","category":"正常","func":"load_severity_keywords","expected":{"contains_key":"高"}},
+    {"id":"K05","name":"load_avoidance含规避","category":"正常","func":"load_avoidance_headers","expected":{"contains":"规避"}},
+    {"id":"K06","name":"reload前后一致","category":"正常","func":"reload_consistent","expected":true},
+    {"id":"K07","name":"get_all_known>100","category":"正常","func":"get_all_known_keywords_len","expected":100},
+    {"id":"K08","name":"add_keyword未知分区→False","category":"异常","func":"add_keyword","section":"unknown_x","category":"X","keyword":"kw","expected":false}
+  ],
+
+  "discovery": [
+    {"id":"D01","name":"空文本→0候选","category":"边界","input":"","expected":{"cand_count":0}},
+    {"id":"D02","name":"停用词→0","category":"边界","input":"the a an is are be it","expected":{"cand_count":0}},
+    {"id":"D03","name":"反引号捕获","category":"正常","input":"use `podman` and `ziglang`","expected":{"cand_contains":["podman","ziglang"]}},
+    {"id":"D04","name":"CamelCase捕获","category":"正常","input":"use TimedRotatingFileHandler for log","expected":{"cand_contains":["timedrotatingfilehandler"]}},
+    {"id":"D05","name":"已知词排除","category":"正常","input":"use python pip conda","expected":{"cand_not":["python","pip"]}},
+    {"id":"D06","name":"短词过滤","category":"边界","input":"AB CD EF GH","expected":{"cand_not":["ab","cd"]}},
+    {"id":"D07","name":"数字排除","category":"边界","input":"version 3.11 12345","expected":{"cand_not":["3.11"]}},
+    {"id":"D08","name":"标题词捕获","category":"正常","input":"# WebAssembly\n## Bun Runtime","expected":{"cand_contains":["webassembly","runtime"]}},
+    {"id":"D09","name":"pending≥3词真","category":"边界","op":"pending","input":"this is another test check","expected":true},
+    {"id":"D10","name":"pending纯中假","category":"边界","op":"pending","input":"这是中文","expected":false},
+    {"id":"D11","name":"reset后空","category":"边界","op":"reset_then_get","expected":0}
+  ],
+
+  "graph": [
+    {"id":"G01","name":"空记录→无数据","category":"边界","records":[],"expected":{"title_contains":"无数据"}},
+    {"id":"G02","name":"单记录→1节点0线","category":"边界","records":[["A","Python","陷阱","中",["Python"],["跨平台"]]],"expected":{"nodes":1,"links":0}},
+    {"id":"G03","name":"多记录有连线","category":"正常","records":[["A","Python","陷阱","高",["Python","陷阱"],["跨平台"]],["B","Shell/Bash","命令行","中",["Shell/Bash"],["Linux"]],["C","Python","问题","低",["Python","Shell/Bash"],["跨平台"]]],"expected":{"nodes":3,"links_ge":1}},
+    {"id":"G04","name":"严重度→尺寸","category":"正常","records":[["严重","Python","陷阱","高",["Python"]],["轻微","Python","规范","低",["Python"]]],"expected":{"max_size_gt_min":true}},
+    {"id":"G05","name":"空标签→0线","category":"边界","records":[["A","","","",[],[]],["B","","","",[],[]]],"expected":{"links":0}},
+    {"id":"G06","name":"必要属性","category":"正常","records":[["X","Python","陷阱","高",["Python"]]],"expected":{"graph_type":"graph","layout":"force","draggable":true}}
+  ],
+
+  "boundary": [
+    {"id":"B01","name":"超长标题","category":"边界","file":["A/memory/long_h.md","# BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\nc"],"expected":{"content_len_gt":0}},
+    {"id":"B02","name":"刚好READ_CHUNK_LIMIT截断","category":"边界","op":"chunk_limit_exact","expected":true},
+    {"id":"B03","name":"差1字符不截断","category":"边界","op":"chunk_limit_minus1","expected":false},
+    {"id":"B04","name":"非MD扩展.mdx","category":"边界","files":[["A/memory/a.mdx","#A"]],"expected":{"count":0}},
+    {"id":"B05","name":"大写扩展.MD","category":"边界","files":[["A/memory/a.MD","#A"]],"expected":{"count":1}},
+    {"id":"B06","name":"memory在根目录自身","category":"边界","files":[["memory/a.md","#A"]],"expected":{"count":1}},
+    {"id":"B07","name":"深层嵌套memory","category":"边界","files":[["A/B/C/memory/a.md","#A"]],"expected":{"count":1}}
+  ],
+
+  "exception": [
+    {"id":"EX01","name":"文件删除后extract","category":"异常","op":"file_deleted","expected":{"not_crash":true}},
+    {"id":"EX02","name":"二进制.md容错","category":"异常","op":"binary_md","expected":{"not_crash":true}},
+    {"id":"EX03","name":"_read_text不存在","category":"异常","func":"_read_text","args":["/no/such/file.md"],"expected":""},
+    {"id":"EX04","name":"不存在根目录","category":"异常","op":"nonexistent_root","expected":{"count":0}},
+    {"id":"EX05","name":"无memory子目录","category":"异常","files":[["A/docs/a.md","#A"]],"expected":{"count":0}},
+    {"id":"EX06","name":"FileMeta空字段","category":"异常","op":"empty_filemeta","expected":{"not_crash":true}}
+  ],
+
+  "regression": [
+    {"id":"R01","name":"Scanner基础","category":"回归","files":[["A/memory/x.md","#X"],["B/memory/y.md","#Y"]],"expected":{"count":2}},
+    {"id":"R02","name":"Python陷阱全链路","category":"回归","file":["P/memory/py.md","# Python 异步陷阱\n在协程中误用阻塞调用。\n## 规避方法\n使用 asyncio.to_thread。"],"expected":{"language_contains":["Python"],"type":"陷阱","avoidance_contains":"asyncio"}},
+    {"id":"R03","name":"Batch+PS检测","category":"回归","file":["W/memory/cmd.md","# 缓存\nrmdir /s /q dist\\renderer\n## 规避\nPowerShell Remove-Item。"],"expected":{"language_contains":["Batch/CMD","PowerShell"],"platform_contains":["Windows"]}},
+    {"id":"R04","name":"Docker配置","category":"回归","file":["D/memory/docker.md","# Docker\ndocker compose up，注意镜像版本过老安装失败。\n## 解决方法\n改用 python:3.11-slim。"],"expected":{"language_contains":["Docker"],"type":"环境配置"}},
+    {"id":"R05","name":"Git/GitHub","category":"回归","file":["G/memory/git.md","# Git\ncommit hook，.gitignore。\ngit push 前 git pull --rebase。"],"expected":{"language_contains":["Git/GitHub"]}},
+    {"id":"R06","name":"兼容性","category":"回归","file":["X/memory/enc.md","# 跨平台换行\nWindows CRLF Linux LF diff 异常。\n## 规避\ngit config core.autocrlf input。"],"expected":{"type":"兼容性"}},
+    {"id":"R07","name":"缓存完整流程","category":"回归","op":"cache_full_flow","expected":true},
+    {"id":"R08","name":"reload一致","category":"回归","op":"reload_consistent","expected":true},
+    {"id":"R09","name":"图谱2节点","category":"回归","op":"graph_basic","expected":true}
+  ],
+
+  "normalize": [
+    {"id":"N01","name":"补齐所有字段默认值","category":"正常","op":"normalize_defaults","expected":true},
+    {"id":"N02","name":"保留已有字段","category":"正常","op":"normalize_preserve","expected":true},
+    {"id":"N03","name":"_truncated大文本真","category":"边界","op":"normalize_truncated_true","expected":true},
+    {"id":"N04","name":"_truncated小文本假","category":"边界","op":"normalize_truncated_false","expected":false},
+    {"id":"N05","name":"_rule_extract全字段","category":"正常","op":"rule_extract_all","expected":true},
+    {"id":"N06","name":"_rule_extract空文本","category":"边界","op":"rule_extract_empty","expected":true}
+  ]
+}
