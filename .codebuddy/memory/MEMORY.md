@@ -12,6 +12,7 @@
 - **P0 (v0.2, 2.3h) ✅ 已完成**：Shell/PowerShell/Batch/Docker 语言覆盖、命令行/环境配置/兼容性类型、平台字段、重入保护、.gitignore、Shell 测试
 - **P1 (v0.3, 5.4h) ✅ 已完成**：全文检索（M3）、LLM 抽取 UI 化/批量重抽（M2）、规避增强、交叉统计、缓存瘦身、CSV 含路径、截断告警
 - **P2 (v0.7, 11.5h) ✅ 已完成**：✅ treemap 图谱（M3）、✅ Excel 导出、✅ 目录分组筛选、✅ 时间范围筛选、✅ 多记录抽取（按##拆分）、✅ 统计面板重构、✅ 交互式候选面板（点击加入词库）、✅ 候选发现修复、✅ 目录浏览、✅ 筛选栏紧凑化、✅ 表格分页、✅ CSV/MD 导出修复（bytes+BOM）、✅ 测试债务清零（v0.0.4，verify 全绿）、✅ LLM 质量评分（v0.0.5）、✅ 定时增量同步（v0.0.6）、✅ 代码高亮（v0.0.7：highlight.js 注入 + #detail-body 精准定位 + 离线优雅降级）。**停止条件已满足：每日 09:00 自动化下次触发时自动停止。**
+- **P3 (v0.0.8) ✅ 已完成（用户手动追加）**：✅ PDF 导出（src/exporters.py build_pdf + reportlab STSong-Light 中文渲染；CSV/Excel/MD 导出重构进同一纯函数模块）、✅ 记录内编辑/修正低分（详情"✏️ 编辑"对话框写回记录+缓存并重算质量分；"修正低分"按钮按可见低分队列逐条编辑，src/record_edit.py 纯逻辑）、✅ K3 可选 LLM 后端（config.LLM_PRESETS 新增 Kimi K3：base_url=https://api.moonshot.ai/v1, model=kimi-k3；LLM 设置区"后端"下拉切换自动填充 base_url/model，复用既有 OpenAI 兼容 LLMExtractor）。verify 7 套件全绿，独立子代理审查通过。
 - 详见：`docs/08_综合评审报告.md`
 
 ## Loop Engineering（2026-07-17 搭建）

@@ -26,6 +26,8 @@
 
 **结论**：本 Loop 架构**模型无关**。当前自动化默认由本 IDE 内置模型驱动；若将来改用 Kimi K3，只需把连接器 / 子代理的模型后端切到 K3 的 API（或本地部署的开源权重），五组件结构**无需改动**。K3 的 100 万 token 上下文与长程编码能力，对缓解"意图债务"、承载大型验证任务尤其有利。
 
+> **2026-07-17 更新（v0.0.8）**：K3 已作为**可选 LLM 后端**接入产品本身——`config.LLM_PRESETS` 新增 `kimi_k3`（`base_url=https://api.moonshot.ai/v1`，`model=kimi-k3`），LLM 设置区新增"后端"下拉，切换即自动填充 base_url/model，并复用既有 OpenAI 兼容 `LLMExtractor`（抽取 / 质量评分通用）。用户只需填入 Moonshot API Key 即可启用，无需改代码。
+
 ## 3. 一次迭代的生命周期
 ```
 automation(每日) ──▶ 加载 memoalign-loop 技能

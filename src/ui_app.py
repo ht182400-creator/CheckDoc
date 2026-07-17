@@ -13,7 +13,7 @@ import io
 import os
 import time
 import traceback
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from nicegui import ui
 
@@ -23,6 +23,8 @@ from . import keywords_discovery as discovery
 from . import graph_view
 from . import quality_scorer
 from . import sync
+from . import exporters, record_edit
+from .exporters import flatten as _flatten
 from .config import FieldType
 from .logger import log
 
@@ -61,6 +63,8 @@ _llm_url_input = None
 _llm_key_input = None
 _llm_model_input = None
 _llm_status_label = None
+# P3：LLM 后端选择（K3 可选后端）
+_llm_provider_select = None
 # P2-5/6：项目筛选 + 时间筛选
 project_filter_widget = None       # 项目多选筛选
 time_filter_widget = None          # 时间范围筛选
@@ -424,93 +428,201 @@ def _flatten_records(rows: List[Dict]) -> List[Dict]:
     return result
 
 
-def _flatten(v) -> str:
-    """将列表/标量统一为可写入 CSV 的字符串。"""
-    if isinstance(v, list):
-        return "; ".join(str(x) for x in v)
-    return "" if v is None else str(v)
-
-
 def _export_csv() -> None:
-    """导出当前表格可见记录为 CSV（含文件路径）并触发下载。"""
+    """导出当前表格可见记录为 CSV（经 exporters 生成字节流）。"""
     if not table or not table.rows:
         ui.notify("表格无数据可导出", type="warning")
         return
-    fieldnames = [f.key for f in config.SCHEMA] + config.EXTRA_EXPORT_FIELDS
-    buf = io.StringIO()
-    # 加 BOM 让 Excel 正确识别 UTF-8
-    buf.write("\ufeff")
-    writer = csv.DictWriter(buf, fieldnames=fieldnames, extrasaction="ignore")
-    writer.writeheader()
-    for r in table.rows:
-        row = {f.key: _flatten(r.get(f.key)) for f in config.SCHEMA}
-        row["_path"] = r.get("_path", "")
-        writer.writerow(row)
-    # 转 bytes 传给 ui.download
-    content = buf.getvalue().encode("utf-8")
+    content = exporters.build_csv(table.rows)
     log.info("CSV导出: 记录数=%d, 字节数=%d", len(table.rows), len(content))
     ui.download(content, "memoalign.csv", "text/csv; charset=utf-8")
     ui.notify(f"已导出 CSV：{len(table.rows)} 条记录", type="positive")
 
 
 def _export_xlsx() -> None:
-    """导出当前表格可见记录为 Excel（需 pip install openpyxl，失败自动回落 CSV）。"""
+    """导出当前表格可见记录为 Excel（失败自动回落 CSV）。"""
+    if not table or not table.rows:
+        ui.notify("表格无数据可导出", type="warning")
+        return
     try:
-        import openpyxl  # noqa: PLC0415
-    except ImportError:
+        content = exporters.build_xlsx(table.rows)
+    except RuntimeError:
         ui.notify("未安装 openpyxl，已改为导出 CSV。可执行 pip install openpyxl 启用 Excel 导出", type="warning")
         _export_csv()
         return
-
-    try:
-        wb = openpyxl.Workbook()
-        ws = wb.active
-        ws.title = "MemoAlign"
-        # 表头：Schema 字段 + 质量分 + _path
-        fieldnames = [f.key for f in config.SCHEMA] + config.EXTRA_EXPORT_FIELDS
-        ws.append(fieldnames)
-        for r in (table.rows or []):
-            row = [_flatten(r.get(f.key)) for f in config.SCHEMA]
-            row.append(r.get("_path", ""))
-            ws.append(row)
-        # 自适应列宽
-        for col in ws.columns:
-            max_len = max((len(str(cell.value or "")) for cell in col), default=10)
-            ws.column_dimensions[col[0].column_letter].width = min(max_len + 2, 50)
-        buf = io.BytesIO()
-        wb.save(buf)
-        ui.download(buf.getvalue(), "memoalign.xlsx",
-                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-        ui.notify("已导出 Excel", type="positive")
     except Exception as exc:
         log.error("Excel 导出失败: %s", exc)
         ui.notify(f"Excel 导出失败: {exc}", type="negative")
+        return
+    ui.download(content, "memoalign.xlsx",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    ui.notify("已导出 Excel", type="positive")
 
 
 def _export_md() -> None:
-    """按类型分组导出 Markdown 摘要并触发下载。"""
-    rows = table.rows or []
-    if not rows:
+    """按类型分组导出 Markdown 摘要（经 exporters 生成字节流）。"""
+    if not table or not table.rows:
         ui.notify("表格无数据可导出", type="warning")
         return
-    groups: Dict[str, List[Dict]] = {}
-    for r in rows:
-        groups.setdefault(r.get("type", "其他"), []).append(r)
-    lines = ["# MemoAlign 导出摘要", f"\n共 {len(rows)} 条记录，按类型分组：\n"]
-    for typ, items in groups.items():
-        lines.append(f"## {typ}（{len(items)}）")
-        for r in items:
-            lang = _flatten(r.get("language"))
-            av = _flatten(r.get("avoidance"))
-            q = r.get(config.QUALITY_SCORE_KEY)
-            q_text = f" 质量分:{q}" if isinstance(q, int) else ""
-            lines.append(f"- **{r.get('content', '')}** 〔{lang}〕 {av}{q_text}")
-        lines.append("")
-    # 转 bytes 给 ui.download
-    content = "\n".join(lines).encode("utf-8")
-    log.info("MD导出: 记录数=%d, 字节数=%d", len(rows), len(content))
+    content = exporters.build_md(table.rows)
+    log.info("MD导出: 记录数=%d, 字节数=%d", len(table.rows), len(content))
     ui.download(content, "memoalign.md", "text/markdown; charset=utf-8")
-    ui.notify(f"已导出 Markdown：{len(rows)} 条记录", type="positive")
+    ui.notify(f"已导出 Markdown：{len(table.rows)} 条记录", type="positive")
+
+
+def _export_pdf() -> None:
+    """导出当前表格可见记录为 PDF（含中文；依赖 reportlab）。"""
+    if not table or not table.rows:
+        ui.notify("表格无数据可导出", type="warning")
+        return
+    try:
+        content = exporters.build_pdf(table.rows)
+    except RuntimeError:
+        ui.notify("未安装 reportlab，无法导出 PDF。可执行 pip install reportlab 启用", type="negative")
+        return
+    except Exception as exc:
+        log.error("PDF 导出失败: %s", exc)
+        ui.notify(f"PDF 导出失败: {exc}", type="negative")
+        return
+    ui.download(content, "memoalign.pdf", "application/pdf")
+    ui.notify(f"已导出 PDF：{len(table.rows)} 条记录", type="positive")
+    log.info("PDF导出: 记录数=%d, 字节数=%d", len(table.rows), len(content))
+
+
+
+def _find_record_by_id(rid) -> Optional[Dict]:
+    """按 id 在全局 records 中查找原记录对象（就地修改用）。"""
+    for r in records:
+        if r.get("id") == rid:
+            return r
+    return None
+
+
+def _persist_record_group(rec: Dict) -> None:
+    """将某 _path 下的全部记录写回缓存（编辑后持久化）。"""
+    path = rec.get("_path", "")
+    if not path or not os.path.isfile(path):
+        return
+    group = [r for r in records if r.get("_path") == path]
+    try:
+        cache = store.load_cache()
+        from .scanner import FileMeta
+        meta = FileMeta(
+            path=path,
+            name=os.path.splitext(os.path.basename(path))[0],
+            project=os.path.basename(os.path.dirname(os.path.dirname(path))),
+            mtime=os.path.getmtime(path),
+            size=os.path.getsize(path),
+        )
+        store.put_all(cache, meta, group)
+        store.save_cache(cache)
+    except Exception as exc:
+        log.warning("编辑写回缓存失败（不影响内存）: %s\n%s", path, traceback.format_exc())
+
+
+def _save_record_edit(rec: Dict, widgets: Dict) -> None:
+    """将编辑控件的值写回记录，重算质量分，持久化并刷新表格。"""
+    try:
+        edited = {k: w.value for k, w in widgets.items()}
+        record_edit.merge_edit(rec, edited, config.SCHEMA)
+        # 编辑后重算质量分（启发式，不触发 LLM）
+        rec[config.QUALITY_SCORE_KEY] = quality_scorer.score_record(rec, llm=False)
+        _persist_record_group(rec)
+        _build_filter_bar()
+        _update_stats(records)
+        table.rows = _flatten_records(records)
+        ui.notify("已保存修改，质量分已重算", type="positive")
+        log.info("记录已编辑保存: path=%s", rec.get("_path"))
+    except Exception as exc:
+        log.error("保存记录编辑失败: %s\n%s", exc, traceback.format_exc())
+        ui.notify(f"保存失败: {exc}", type="negative")
+
+
+def _open_edit(row: Dict, queue: List[Dict] = None) -> None:
+    """打开编辑对话框：按 Schema 生成可编辑控件，保存写回并刷新。"""
+    rec = _find_record_by_id(row.get("id"))
+    if rec is None:
+        ui.notify("未找到原记录", type="negative")
+        return
+    edit_widgets: Dict[str, object] = {}
+
+    with ui.dialog() as dlg, ui.card().style("min-width:560px; max-height:88vh"):
+        ui.label("✏️ 编辑记录").classes("text-h6")
+        with ui.scroll_area().style("max-height:62vh"):
+            for f in config.SCHEMA:
+                cur = rec.get(f.key)
+                if f.ftype == FieldType.TEXT:
+                    w = ui.textarea(label=f.label, value=cur or "").props("outlined dense")
+                elif f.ftype == FieldType.SELECT:
+                    opts = {None: "（空）"}
+                    opts.update({o: o for o in f.options})
+                    w = ui.select(label=f.label, options=opts, value=cur or None).props("dense outlined")
+                else:  # MULTI
+                    w = ui.select(label=f.label, options=f.options, value=cur or [],
+                                  multiple=True).props("dense outlined use-chips")
+                edit_widgets[f.key] = w
+        q_cur = rec.get(config.QUALITY_SCORE_KEY)
+        ui.label(f"当前质量分：{q_cur if isinstance(q_cur, int) else '未评分'}（保存后自动重算）").classes(
+            "text-caption text-grey")
+        with ui.row().classes("w-full justify-end gap-2 q-mt-sm"):
+            ui.button("取消", on_click=dlg.close).props("flat")
+
+            def _save(_=None, d=dlg):
+                _save_record_edit(rec, edit_widgets)
+                d.close()
+
+            ui.button("保存", on_click=_save, color="primary")
+
+            if queue:
+                def _save_next(_=None, d=dlg):
+                    _save_record_edit(rec, edit_widgets)
+                    d.close()
+                    _advance_edit_queue(queue)
+
+                ui.button("保存并下一条", on_click=_save_next, color="primary").props("outline")
+
+    dlg.open()
+
+
+def _advance_edit_queue(queue: List[Dict]) -> None:
+    """编辑队列推进：打开下一条低分记录（队列为空则提示完成）。"""
+    if not queue:
+        ui.notify("低分修正完成", type="positive")
+        return
+    nxt = queue.pop(0)
+    _open_edit(nxt, queue)
+
+
+def _correct_low_scores() -> None:
+    """从当前可见表格行中收集低分/未评分记录，依次打开编辑。"""
+    if not records:
+        ui.notify("请先扫描", type="warning")
+        return
+    visible_ids = {r.get("id") for r in (table.rows or [])}
+    queue = [r for r in records if r.get("id") in visible_ids and record_edit.is_low_score(r)]
+    if not queue:
+        ui.notify("当前无低分记录可修正", type="positive")
+        return
+    ui.notify(f"共 {len(queue)} 条低分待修正", type="info")
+    _open_edit(queue[0], queue[1:])
+
+
+def _on_provider_change() -> None:
+    """LLM 后端切换：按预设填充 base_url/model 并刷新配置。"""
+    if _llm_provider_select is None:
+        return
+    preset = config.LLM_PRESETS.get(_llm_provider_select.value)
+    if not preset:
+        return
+    config.LLM_BASE_URL = preset["base_url"]
+    config.LLM_MODEL = preset["model"]
+    if _llm_url_input is not None:
+        _llm_url_input.value = preset["base_url"]
+    if _llm_model_input is not None:
+        _llm_model_input.value = preset["model"]
+    _update_llm_config()
+    ui.notify(f"已切换后端：{preset['label']}", type="info")
+    log.info("LLM 后端切换: %s", preset["label"])
 
 
 def _reset_filters() -> None:
@@ -1093,6 +1205,7 @@ def create_ui() -> None:
     global metric_files, metric_total, metric_matched, metric_unmatched, metric_platforms, metric_quality
     global chips_types, chips_langs, chips_platforms, chips_unmatched
     global _llm_enabled_switch, _llm_url_input, _llm_key_input, _llm_model_input, _llm_status_label
+    global _llm_provider_select
     global _sync_timer, autosync_switch, autosync_interval
 
     # P2-4：注入 highlight.js（详情代码块语法高亮；离线时优雅降级）
@@ -1116,6 +1229,8 @@ def create_ui() -> None:
             ui.button("导出 CSV", on_click=_export_csv)
             ui.button("导出 Excel", on_click=_export_xlsx)
             ui.button("导出 MD", on_click=_export_md)
+            ui.button("导出 PDF", on_click=_export_pdf)
+            ui.button("修正低分", on_click=_correct_low_scores).props("outline")
         status_label = ui.label("就绪").classes("text-caption text-grey")
 
         # P1-1：全文检索输入框
@@ -1136,14 +1251,22 @@ def create_ui() -> None:
             ).props("dense outlined").style("min-width:90px")
             autosync_interval.on("update:model-value", lambda *_: _toggle_autosync())
 
-        # P1-2：LLM 抽取设置（可折叠）
-        with ui.expansion("LLM 抽取设置", icon="smart_toy", value=False).classes("w-full q-mt-sm"):
-            with ui.row().classes("items-end gap-3 w-full"):
-                _llm_enabled_switch = ui.switch("启用 LLM", value=config.LLM_ENABLED).props("dense")
-                _llm_enabled_switch.on("update:model-value", lambda *_: _update_llm_config())
-                _llm_status_label = ui.label(
-                    "已启用" if config.LLM_ENABLED and config.LLM_API_KEY else "未启用"
-                ).classes("text-caption text-grey")
+    # P1-2：LLM 抽取设置（可折叠）
+    with ui.expansion("LLM 抽取设置", icon="smart_toy", value=False).classes("w-full q-mt-sm"):
+        # P3：LLM 后端选择（K3 可选后端）
+        with ui.row().classes("items-end gap-2 w-full"):
+            _llm_provider_select = ui.select(
+                options={k: v["label"] for k, v in config.LLM_PRESETS.items()},
+                value=config.LLM_DEFAULT_PROVIDER,
+            ).props("dense outlined").style("min-width:220px")
+            ui.label("后端").classes("text-caption text-grey")
+            _llm_provider_select.on("update:model-value", lambda *_: _on_provider_change())
+        with ui.row().classes("items-end gap-3 w-full"):
+            _llm_enabled_switch = ui.switch("启用 LLM", value=config.LLM_ENABLED).props("dense")
+            _llm_enabled_switch.on("update:model-value", lambda *_: _update_llm_config())
+            _llm_status_label = ui.label(
+                "已启用" if config.LLM_ENABLED and config.LLM_API_KEY else "未启用"
+            ).classes("text-caption text-grey")
             with ui.row().classes("items-end gap-2 w-full q-mt-sm"):
                 _llm_url_input = ui.input("API 地址", value=config.LLM_BASE_URL).props(
                     "outlined dense").classes("grow")
@@ -1245,4 +1368,6 @@ def create_ui() -> None:
             # P2-4：包一层带 id 的容器，便于 JS 精准定位代码块做高亮
             with ui.column().props("id=detail-body").classes("w-full"):
                 body_md = ui.markdown()
-            ui.button("关闭", on_click=detail_dialog.close).props("flat")
+            with ui.row().classes("w-full justify-end q-mt-sm"):
+                ui.button("✏️ 编辑", on_click=lambda: _open_edit(row)).props("outline")
+                ui.button("关闭", on_click=detail_dialog.close).props("flat")

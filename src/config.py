@@ -41,6 +41,17 @@ LLM_MODEL: str = "gpt-4o-mini"
 LLM_TIMEOUT_SEC: int = 30      # 网络请求超时
 
 # ---------------------------------------------------------------------------
+# LLM 后端预设（P3：K3 作为可选后端）
+# ---------------------------------------------------------------------------
+# 各预设为 OpenAI 兼容协议；Kimi K3（月之暗面）API 兼容 OpenAI 格式，
+# 切换后复用既有 LLMExtractor（/chat/completions + json_object）即可。
+LLM_PRESETS: dict = {
+    "openai":  {"label": "OpenAI", "base_url": "https://api.openai.com/v1", "model": "gpt-4o-mini"},
+    "kimi_k3": {"label": "Kimi K3（月之暗面）", "base_url": "https://api.moonshot.ai/v1", "model": "kimi-k3"},
+}
+LLM_DEFAULT_PROVIDER: str = "openai"  # 默认后端（UI 可切到 kimi_k3）
+
+# ---------------------------------------------------------------------------
 # 质量评分（P2-2，LLM 质量评分 / 置信度）
 # ---------------------------------------------------------------------------
 QUALITY_SCORE_KEY: str = "quality_score"   # 记录内质量分字段名（0-100，缺失/None=未评分）

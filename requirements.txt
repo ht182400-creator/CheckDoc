@@ -1,2 +1,3 @@
 # MemoAlign 依赖（尽量精简，开箱即用）
 nicegui>=1.4.0
+reportlab>=4.0.0   # P3：PDF 导出（内置 CID 字体，无需额外 TTF 即可渲染中文）
