@@ -57,7 +57,8 @@ def main() -> int:
         _sp(comp["out"])
 
     # 2) 测试
-    for suite in ("tests.test_pipeline", "tests.test_runner", "tests.test_quality", "tests.test_sync"):
+    for suite in ("tests.test_pipeline", "tests.test_runner", "tests.test_quality",
+                  "tests.test_sync", "tests.test_highlight"):
         t = _run([sys.executable, "-m", "unittest", suite, "-v"])
         report["tests"][suite] = {"ok": t["ok"], "rc": t["rc"]}
         print(f"[{suite}] {'PASS' if t['ok'] else 'FAIL'} (rc={t['rc']})")

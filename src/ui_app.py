@@ -71,6 +71,14 @@ _sync_timer = None                 # NiceGUI 定时器句柄（None=未开启）
 autosync_switch = None             # 自动同步开关
 autosync_interval = None           # 自动同步间隔下拉
 
+# P2-4：详情页代码高亮（highlight.js via CDN；离线时优雅降级为纯文本代码块）
+HIGHLIGHT_HEAD_HTML = (
+    '<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/'
+    'highlight.js@11.9.0/styles/{theme}.min.css">'.replace("{theme}", config.CODE_HIGHLIGHT_THEME)
+    + '<script src="https://cdn.jsdelivr.net/npm/'
+    'highlight.js@11.9.0/lib/highlight.min.js"></script>'
+)
+
 
 def _build_columns() -> List[Dict]:
     """由 SCHEMA 生成 Quasar 表格列定义（可排序 + 宽度/省略样式）。"""
@@ -128,6 +136,14 @@ def _open_detail(row: Dict) -> None:
         f"**标签**：{row.get('tags', '')}"
     )
     body_md.set_content(row.get("_raw", "") or "（无内容）")
+    # P2-4：内容渲染后对其内代码块做语法高亮（highlight.js 全局已加载）
+    if config.CODE_HIGHLIGHT_ENABLED:
+        ui.run_javascript(
+            "setTimeout(function(){if(window.hljs){"
+            "var bs=document.querySelectorAll('#detail-body pre code');"
+            "for(var i=0;i<bs.length;i++){try{hljs.highlightElement(bs[i]);}catch(e){}}}"
+            "},80);}"
+        )
     detail_dialog.open()
 
 
@@ -1079,6 +1095,10 @@ def create_ui() -> None:
     global _llm_enabled_switch, _llm_url_input, _llm_key_input, _llm_model_input, _llm_status_label
     global _sync_timer, autosync_switch, autosync_interval
 
+    # P2-4：注入 highlight.js（详情代码块语法高亮；离线时优雅降级）
+    if config.CODE_HIGHLIGHT_ENABLED:
+        ui.add_head_html(HIGHLIGHT_HEAD_HTML)
+
     # 标题栏
     with ui.card().classes("w-full q-pa-md"):
         ui.label("MemoAlign · 记忆对齐分析器").classes("text-h5 text-weight-bold")
@@ -1222,5 +1242,7 @@ def create_ui() -> None:
         with ui.card().classes("w-full max-w-3xl"):
             ui.label("笔记详情").classes("text-h6")
             meta_md = ui.markdown()
-            body_md = ui.markdown()
+            # P2-4：包一层带 id 的容器，便于 JS 精准定位代码块做高亮
+            with ui.column().props("id=detail-body").classes("w-full"):
+                body_md = ui.markdown()
             ui.button("关闭", on_click=detail_dialog.close).props("flat")

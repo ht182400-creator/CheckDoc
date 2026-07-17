@@ -19,6 +19,10 @@
     "tests.test_sync": {
       "ok": true,
       "rc": 0
+    },
+    "tests.test_highlight": {
+      "ok": true,
+      "rc": 0
     }
   },
   "passed": true
