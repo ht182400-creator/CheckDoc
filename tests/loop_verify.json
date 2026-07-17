@@ -1,0 +1,17 @@
+{
+  "compile": {
+    "ok": true,
+    "rc": 0
+  },
+  "tests": {
+    "tests.test_pipeline": {
+      "ok": true,
+      "rc": 0
+    },
+    "tests.test_runner": {
+      "ok": true,
+      "rc": 0
+    }
+  },
+  "passed": true
+}

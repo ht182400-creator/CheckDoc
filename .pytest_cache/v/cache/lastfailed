@@ -1,0 +1,3 @@
+{
+  "tests/test_runner.py::TestExtractorUnit::test_EU01": true
+}
