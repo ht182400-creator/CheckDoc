@@ -308,7 +308,8 @@ def _mk_ep(case):
                 with self.assertRaises(Exception):
                     extract(meta, force_llm=force)
                 return
-            rec = extract(meta, force_llm=force)
+            recs = extract(meta, force_llm=force)
+            rec = recs[0] if recs else {}
             exp = case["expected"]
             ok, msg = _ver(exp, rec)
             if not ok:
@@ -362,8 +363,9 @@ def _mk_st(case):
                 rec = {"content": "test", "_raw": "a" * 3000}
                 cache = {}
                 st.put(cache, meta, rec)
-                self.assertNotIn("_raw", cache["/x.md"])
-                self.assertIn("_raw_preview", cache["/x.md"])
+                entry = cache["/x.md"]
+                self.assertNotIn("_raw", entry["records"][0])
+                self.assertIn("_raw_preview", entry["records"][0])
             elif op == "full_flow":
                 with tempfile.TemporaryDirectory() as d:
                     _w(d, "M/memory/a.md", "# A\ncontent")
@@ -372,7 +374,7 @@ def _mk_st(case):
                     meta = scan_memory_md(d)[0]
                     cache = st.load_cache()
                     self.assertTrue(st.needs_update(meta, cache))
-                    st.put(cache, meta, extract(meta))
+                    st.put_all(cache, meta, extract(meta))
                     self.assertFalse(st.needs_update(meta, cache))
                     os.utime(meta.path, (meta.mtime + 10, meta.mtime + 10))
                     m2 = scan_memory_md(d)[0]
@@ -500,7 +502,7 @@ def _mk_g(case):
                 "type": r[2] if len(r) > 2 else "", "severity": r[3] if len(r) > 3 else "中",
                 "tags": r[4] if len(r) > 4 else [], "platform": r[5] if len(r) > 5 else ["跨平台"]
             })
-        opt = build_graph_option(records)
+        opt = build_graph_option(records, mode="network")
         exp = case["expected"]
         if "title_contains" in exp:
             self.assertIn(exp["title_contains"], opt.get("title", {}).get("text", ""))
@@ -543,16 +545,17 @@ def _mk_b(case):
         if op == "chunk_limit_exact":
             with tempfile.TemporaryDirectory() as d:
                 _w(d, "A/memory/big.md", "x" * cfg.READ_CHUNK_LIMIT)
-                self.assertTrue(extract(scan_memory_md(d)[0]).get("_truncated"))
+                self.assertTrue(extract(scan_memory_md(d)[0])[0].get("_truncated"))
         elif op == "chunk_limit_minus1":
             with tempfile.TemporaryDirectory() as d:
                 _w(d, "A/memory/big.md", "x" * (cfg.READ_CHUNK_LIMIT - 1))
-                self.assertFalse(extract(scan_memory_md(d)[0]).get("_truncated"))
+                self.assertFalse(extract(scan_memory_md(d)[0])[0].get("_truncated"))
         elif "file" in case:
             with tempfile.TemporaryDirectory() as d:
                 path, content = case["file"][0], case["file"][1]
                 _w(d, path, content)
-                rec = extract(scan_memory_md(d)[0])
+                recs = extract(scan_memory_md(d)[0])
+                rec = recs[0]
                 if "content_len_gt" in exp:
                     self.assertGreater(len(rec.get("content", "")), exp["content_len_gt"])
         elif "files" in case:
@@ -595,13 +598,15 @@ def _mk_ex(case):
                 p = _w(d, "A/memory/gone.md", "# Gone\nc")
                 metas = scan_memory_md(d)
                 os.remove(p)
-                rec = extract(metas[0])
+                recs = extract(metas[0])
+                rec = recs[0]
                 self.assertIsInstance(rec, dict)
         elif op == "binary_md":
             with tempfile.TemporaryDirectory() as d:
                 _wb(d, "A/memory/bin.md", bytes(range(128, 256)))
                 metas = scan_memory_md(d)
-                rec = extract(metas[0])
+                recs = extract(metas[0])
+                rec = recs[0]
                 self.assertIsInstance(rec, dict)
                 self.assertIn("content", rec)
         elif op == "nonexistent_root":
@@ -610,7 +615,8 @@ def _mk_ex(case):
             with tempfile.TemporaryDirectory() as d:
                 p = _w(d, "X/memory/t.md", "# T\nc")
                 meta = FileMeta(path=p, name="t", project="", mtime=0.0, size=100)
-                rec = extract(meta)
+                recs = extract(meta)
+                rec = recs[0]
                 self.assertIn("source", rec)
     return test
 
@@ -637,7 +643,7 @@ def _mk_r(case):
                 meta = scan_memory_md(d)[0]
                 cache = st.load_cache()
                 self.assertTrue(st.needs_update(meta, cache))
-                st.put(cache, meta, extract(meta))
+                st.put_all(cache, meta, extract(meta))
                 self.assertFalse(st.needs_update(meta, cache))
                 os.utime(meta.path, (meta.mtime + 10, meta.mtime + 10))
                 self.assertTrue(st.needs_update(scan_memory_md(d)[0], cache))
@@ -654,7 +660,7 @@ def _mk_r(case):
                 {"content": "A", "language": ["Python"], "type": "陷阱", "severity": "高", "tags": ["Python"], "platform": ["跨平台"]},
                 {"content": "B", "language": ["Shell/Bash"], "type": "命令行", "severity": "中", "tags": ["Shell/Bash"], "platform": ["Linux"]},
             ]
-            opt = build_graph_option(records)
+            opt = build_graph_option(records, mode="network")
             self.assertEqual(len(opt["series"][0]["data"]), 2)
             return
         if "file" in case:
@@ -663,7 +669,8 @@ def _mk_r(case):
             with tempfile.TemporaryDirectory() as d:
                 path, content = case["file"][0], case["file"][1]
                 _w(d, path, content)
-                rec = extract(scan_memory_md(d)[0])
+                recs = extract(scan_memory_md(d)[0])
+                rec = recs[0] if recs else {}
                 exp = case["expected"]
                 ok, msg = _ver(exp, rec)
                 if not ok:
@@ -690,7 +697,7 @@ class TestNormalize(_Base):
 def _mk_n(case):
     def test(self):
         _attach_case(self, case)
-        from src.extractor import _normalize, _rule_extract
+        from src.extractor import _normalize, _rule_extract_section
         from src.scanner import FileMeta
         from src import config as cfg
         from src.config import SCHEMA
@@ -714,12 +721,12 @@ def _mk_n(case):
             self.assertFalse(rec.get("_truncated"))
         elif op == "rule_extract_all":
             meta = FileMeta(path="/tmp/r.md", name="r", project="P", mtime=0.0, size=100)
-            rec = _rule_extract("# Python\nc\n## 规避\nuse asyncio", meta)
+            rec = _rule_extract_section("# Python\nc\n## 规避\nuse asyncio", "Python笔记", "", "")
             for key in ("content", "language", "platform", "type", "avoidance", "severity", "source", "tags"):
                 self.assertIn(key, rec)
         elif op == "rule_extract_empty":
             meta = FileMeta(path="/tmp/e.md", name="e", project="P", mtime=0.0, size=0)
-            rec = _rule_extract("", meta)
+            rec = _rule_extract_section("", "", "", "")
             self.assertEqual(rec["language"], ["通用"])
             self.assertEqual(rec["platform"], ["跨平台"])
     return test

@@ -17,7 +17,7 @@
   ],
 
   "extractor_unit": [
-    {"id":"EU01","name":"_first_heading正常","category":"正常","func":"_first_heading","args":["## Hi\nc","fb"],"expected":"Hi"},
+    {"id":"EU01","name":"_first_heading正常","category":"正常","func":"_first_heading","args":["## Hi\nc","fb"],"expected":"Hi | c"},
     {"id":"EU02","name":"_first_heading空#","category":"边界","func":"_first_heading","args":["# \nc","fallback"],"expected":"fallback"},
     {"id":"EU03","name":"_first_heading无#","category":"边界","func":"_first_heading","args":["no heading","fb"],"expected":"fb"},
     {"id":"EU04","name":"_first_heading空文本","category":"边界","func":"_first_heading","args":["","empty"],"expected":"empty"},
@@ -122,7 +122,7 @@
     {"id":"G01","name":"空记录→无数据","category":"边界","records":[],"expected":{"title_contains":"无数据"}},
     {"id":"G02","name":"单记录→1节点0线","category":"边界","records":[["A","Python","陷阱","中",["Python"],["跨平台"]]],"expected":{"nodes":1,"links":0}},
     {"id":"G03","name":"多记录有连线","category":"正常","records":[["A","Python","陷阱","高",["Python","陷阱"],["跨平台"]],["B","Shell/Bash","命令行","中",["Shell/Bash"],["Linux"]],["C","Python","问题","低",["Python","Shell/Bash"],["跨平台"]]],"expected":{"nodes":3,"links_ge":1}},
-    {"id":"G04","name":"严重度→尺寸","category":"正常","records":[["严重","Python","陷阱","高",["Python"]],["轻微","Python","规范","低",["Python"]]],"expected":{"max_size_gt_min":true}},
+    {"id":"G04","name":"聚合数量→节点尺寸","category":"正常","records":[["a","Python","陷阱","高",["Python"]],["b","Python","陷阱","高",["Python"]],["c","Python","陷阱","高",["Python"]],["d","Python","规范","低",["Python"]]],"expected":{"max_size_gt_min":true}},
     {"id":"G05","name":"空标签→0线","category":"边界","records":[["A","","","",[],[]],["B","","","",[],[]]],"expected":{"links":0}},
     {"id":"G06","name":"必要属性","category":"正常","records":[["X","Python","陷阱","高",["Python"]]],"expected":{"graph_type":"graph","layout":"force","draggable":true}}
   ],

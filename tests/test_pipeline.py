@@ -106,7 +106,9 @@ class TestException(unittest.TestCase):
             metas = scan_memory_md(d)
             os.remove(p)
             from src.extractor import extract
-            rec = extract(metas[0])
+            recs = extract(metas[0])
+            self.assertIsInstance(recs, list)
+            rec = recs[0]
             self.assertIsInstance(rec, dict)
 
     def test_TC05_binary_md_encoding_fallback(self):
@@ -121,7 +123,9 @@ class TestException(unittest.TestCase):
             from src.scanner import scan_memory_md
             from src.extractor import extract
             metas = scan_memory_md(d)
-            rec = extract(metas[0])
+            recs = extract(metas[0])
+            self.assertIsInstance(recs, list)
+            rec = recs[0]
             self.assertIsInstance(rec, dict)
 
     def test_TC06_force_llm_raises_without_key(self):
@@ -139,7 +143,8 @@ class TestException(unittest.TestCase):
             _write(d, "A/memory/normal.md", "# Normal\ncontent")
             from src.scanner import scan_memory_md
             from src.extractor import extract
-            rec = extract(scan_memory_md(d)[0])
+            recs = extract(scan_memory_md(d)[0])
+            rec = recs[0]
             self.assertIn("content", rec)
             self.assertIn("_raw", rec)
 
