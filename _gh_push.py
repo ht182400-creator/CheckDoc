@@ -42,6 +42,9 @@ def _should_exclude(rel: str) -> bool:
     fn = parts[-1]
     if fn.endswith(EXCLUDE_SUFFIX):
         return True
+    # 轮转日志：MemoAlign.log / MemoAlign.log.2026-07-15
+    if fn == "MemoAlign.log" or fn.startswith("MemoAlign.log."):
+        return True
     if rel in ROOT_TEMP:
         return True
     if rel.startswith("tests/"):
