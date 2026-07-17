@@ -52,6 +52,7 @@ filter_container = None
 detail_dialog = None
 meta_md = None
 body_md = None
+current_detail_row = None  # B1 修复：详情对话框当前展示的记录（供"编辑"按钮引用，避免闭包捕获未定义变量）
 _scanning: bool = False           # 重入保护：扫描中禁止再次触发
 _candidate_updating: bool = False  # 重入保护：chip 回调中禁止 clear 容器
 scan_btn = None                   # 扫描按钮引用（用于禁用/启用）
@@ -78,9 +79,10 @@ autosync_interval = None           # 自动同步间隔下拉
 # P2-4：详情页代码高亮（highlight.js via CDN；离线时优雅降级为纯文本代码块）
 HIGHLIGHT_HEAD_HTML = (
     '<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/'
-    'highlight.js@11.9.0/styles/{theme}.min.css">'.replace("{theme}", config.CODE_HIGHLIGHT_THEME)
+    f'highlight.js@{config.HIGHLIGHTJS_CDN_VERSION}/styles/{{theme}}.min.css">'
+    .replace("{theme}", config.CODE_HIGHLIGHT_THEME)
     + '<script src="https://cdn.jsdelivr.net/npm/'
-    'highlight.js@11.9.0/lib/highlight.min.js"></script>'
+    f'highlight.js@{config.HIGHLIGHTJS_CDN_VERSION}/lib/highlight.min.js"></script>'
 )
 
 
@@ -127,6 +129,8 @@ def _on_row_click(e) -> None:
 
 def _open_detail(row: Dict) -> None:
     """打开详情对话框，展示元数据与原文 Markdown。"""
+    global current_detail_row
+    current_detail_row = row  # B1：缓存当前记录，供详情内"编辑"按钮引用
     q_score = row.get(config.QUALITY_SCORE_KEY)
     q_tier = quality_scorer.tier_of(q_score)
     meta_md.set_content(
@@ -208,7 +212,7 @@ def _apply_filters() -> None:
                 if days > 0:
                     mtime_val = r.get("_mtime", 0)
                     if mtime_val:
-                        cutoff = time.time() - days * 86400
+                        cutoff = time.time() - days * config.SECONDS_PER_DAY
                         if mtime_val < cutoff:
                             continue  # 超过时间范围，跳过
         # P2-2：质量等级筛选
@@ -1201,6 +1205,7 @@ def create_ui() -> None:
     """构建页面布局（@ui.page 装饰器注册为根路由 "/"，由 NiceGUI 按需调用）。"""
     global path_input, status_label, stats_label, filter_container, table
     global detail_dialog, meta_md, body_md, scan_btn
+    global current_detail_row
     global candidate_container, candidate_actions, cross_stats_label, global_search_input
     global metric_files, metric_total, metric_matched, metric_unmatched, metric_platforms, metric_quality
     global chips_types, chips_langs, chips_platforms, chips_unmatched
@@ -1337,7 +1342,8 @@ def create_ui() -> None:
             columns=_build_columns(),
             rows=[],
             row_key="id",
-            pagination={"rowsPerPage": 50, "page": 1, "rowsPerPageOptions": [20, 50, 100, 0]},
+            pagination={"rowsPerPage": config.TABLE_DEFAULT_PAGE_SIZE, "page": 1,
+                         "rowsPerPageOptions": config.TABLE_PAGE_SIZE_OPTIONS},
         ).props(
             "flat bordered separator=cell dense wrap-cells "
             "sticky-header "
@@ -1369,5 +1375,5 @@ def create_ui() -> None:
             with ui.column().props("id=detail-body").classes("w-full"):
                 body_md = ui.markdown()
             with ui.row().classes("w-full justify-end q-mt-sm"):
-                ui.button("✏️ 编辑", on_click=lambda: _open_edit(row)).props("outline")
+                ui.button("✏️ 编辑", on_click=lambda: _open_edit(current_detail_row)).props("outline")
                 ui.button("关闭", on_click=detail_dialog.close).props("flat")

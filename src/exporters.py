@@ -9,6 +9,7 @@
 import csv
 import io
 from typing import Dict, List, Optional
+from xml.sax.saxutils import escape as _xml_escape
 
 from . import config
 from .logger import log
@@ -119,14 +120,14 @@ def build_pdf(rows: List[Dict], title: str = "MemoAlign 导出") -> bytes:
                                 textColor=HexColor("#555555"))
 
     story = []
-    story.append(Paragraph(f"{title}（共 {len(rows)} 条）", h_style))
+    story.append(Paragraph(f"{_xml_escape(title)}（共 {len(rows)} 条）", h_style))
     story.append(Spacer(1, 6))
 
     groups: Dict[str, List[Dict]] = {}
     for r in rows:
         groups.setdefault(r.get("type", "其他"), []).append(r)
     for typ, items in groups.items():
-        story.append(Paragraph(f"{typ}（{len(items)}）", sub_style))
+        story.append(Paragraph(f"{_xml_escape(typ)}（{len(items)}）", sub_style))
         for r in items:
             content = flatten(r.get("content")) or "（无内容）"
             lang = flatten(r.get("language"))
@@ -134,11 +135,13 @@ def build_pdf(rows: List[Dict], title: str = "MemoAlign 导出") -> bytes:
             av = flatten(r.get("avoidance"))
             q = r.get(config.QUALITY_SCORE_KEY)
             q_text = f"质量分:{q}" if isinstance(q, int) else "质量分:未评分"
-            story.append(Paragraph(f"• {content}", body_style))
+            # B2 修复：XML 文本必须转义，否则含 & < > 的记录会导致 reportlab 抛 SAXParseException
+            story.append(Paragraph(f"• {_xml_escape(content)}", body_style))
             story.append(Paragraph(
-                f"语言：{lang} ｜ 严重度：{sev} ｜ 类型：{typ} ｜ {q_text}", meta_style))
+                f"语言：{_xml_escape(lang)} ｜ 严重度：{_xml_escape(sev)}"
+                f" ｜ 类型：{_xml_escape(typ)} ｜ {q_text}", meta_style))
             if av:
-                story.append(Paragraph(f"规避：{av}", meta_style))
+                story.append(Paragraph(f"规避：{_xml_escape(av)}", meta_style))
             story.append(Spacer(1, 4))
 
     doc.build(story)

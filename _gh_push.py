@@ -17,6 +17,13 @@ import sys
 import urllib.request
 import urllib.error
 
+try:
+    from src.logger import log
+except Exception:  # pragma: no cover - 兜底，确保脚本始终可运行
+    import logging
+    logging.basicConfig(level=logging.INFO)
+    log = logging.getLogger("gh_push")
+
 OWNER = "ht182400-creator"
 REPO = "CheckDoc"
 API_BASE = "https://api.github.com"
@@ -30,6 +37,21 @@ ROOT_TEMP = {"_add_debug.py", "_test_multi.py", "_test_out.txt", "_server.log", 
 # tests/ 下的临时产物（诊断脚本、临时 txt、运行日志）
 TESTS_TEMP_PREFIX = ("_",)        # tests/_xxx.py / tests/_xxx.txt
 TESTS_LOG_PREFIX = ("test_run_",)  # tests/test_run_*.log
+
+
+def _read_text(abs_path: str) -> str:
+    """读取文本文件内容（B3 修复）。
+
+    先按 utf-8 解码；若失败（如仓库内存在 GBK 编码文件）回落 gb18030，
+    避免整轮推送因单个非 UTF-8 文件而中断。
+    """
+    with open(abs_path, "rb") as fh:
+        raw = fh.read()
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        log.warning("文件非 UTF-8，按 GB18030 回落解码: %s", abs_path)
+        return raw.decode("gb18030")
 
 
 def _should_exclude(rel: str) -> bool:
@@ -134,7 +156,7 @@ def create_tag(token, sha, tag_name, move=False):
     if code == 201:
         return data["ref"]
     if code == 422 and "already exists" in str(data):
-        print(f"  Tag {tag_name} 已存在，跳过")
+        log.info("  Tag %s 已存在，跳过", tag_name)
         return ref_name
     raise RuntimeError(f"创建 tag 失败: {code} {data}")
 
@@ -149,13 +171,12 @@ def push_commit_via_api(token, files, commit_msg):
     if code != 200:
         raise RuntimeError(f"获取 commit 详情失败: {code} {commit_data}")
     base_tree_sha = commit_data["tree"]["sha"]
-    print(f"  远程 master SHA: {master_sha[:7]}, tree: {base_tree_sha[:7]}")
+    log.info("  远程 master SHA: %s, tree: %s", master_sha[:7], base_tree_sha[:7])
 
     tree_items = []
     keep_set = set()
     for path, abs_path in files:
-        with open(abs_path, "r", encoding="utf-8") as f:
-            content = f.read()
+        content = _read_text(abs_path)  # B3：编码探测，避免 GBK 文件导致整轮失败
         code, blob = _api("POST", f"/repos/{OWNER}/{REPO}/git/blobs", token, {
             "content": content,
             "encoding": "utf-8",
@@ -169,14 +190,14 @@ def push_commit_via_api(token, files, commit_msg):
             "sha": blob["sha"],
         })
         keep_set.add(path.replace("\\", "/"))
-        print(f"  blob: {path} ({len(content)} bytes)")
+        log.info("  blob: %s (%d bytes)", path, len(content))
 
     # 清理远程已存在的冗余文件（日志/缓存等本地应排除项）
     deletions = _collect_deletions(token, base_tree_sha, keep_set)
     if deletions:
-        print(f"  清理远程冗余文件: {len(deletions)} 个")
+        log.info("  清理远程冗余文件: %d 个", len(deletions))
         for d in deletions:
-            print(f"    删除: {d['path']}")
+            log.info("    删除: %s", d['path'])
         tree_items = tree_items + deletions
 
     try:
@@ -189,7 +210,7 @@ def push_commit_via_api(token, files, commit_msg):
     except Exception:
         # 若删除项导致 tree 创建失败（API 不接受 sha=null），退回仅新增/更新
         if deletions:
-            print("  [warn] 含删除项的 tree 创建失败，退回仅新增/更新模式")
+            log.warning("  [warn] 含删除项的 tree 创建失败，退回仅新增/更新模式")
             tree_items = [t for t in tree_items if t.get("sha") is not None]
             code, tree = _api("POST", f"/repos/{OWNER}/{REPO}/git/trees", token, {
                 "base_tree": base_tree_sha,
@@ -200,7 +221,7 @@ def push_commit_via_api(token, files, commit_msg):
         else:
             raise
 
-    print(f"  tree: {tree['sha'][:7]}")
+    log.info("  tree: %s", tree['sha'][:7])
 
     code, new_commit = _api("POST", f"/repos/{OWNER}/{REPO}/git/commits", token, {
         "message": commit_msg,
@@ -210,7 +231,7 @@ def push_commit_via_api(token, files, commit_msg):
     if code != 201:
         raise RuntimeError(f"创建 commit 失败: {code} {new_commit}")
     new_sha = new_commit["sha"]
-    print(f"  commit: {new_sha[:7]}")
+    log.info("  commit: %s", new_sha[:7])
 
     code, _ = _api("PATCH", f"/repos/{OWNER}/{REPO}/git/refs/heads/master", token, {
         "sha": new_sha,
@@ -218,15 +239,15 @@ def push_commit_via_api(token, files, commit_msg):
     })
     if code != 200:
         raise RuntimeError(f"更新 master ref 失败: {code}")
-    print(f"  master ref 已更新 → {new_sha[:7]}")
+    log.info("  master ref 已更新 → %s", new_sha[:7])
     return new_sha
 
 
 def main():
     token = os.environ.get("GITHUB_TOKEN", "")
     if not token:
-        print("错误：未找到环境变量 GITHUB_TOKEN")
-        print("请先设置: $env:GITHUB_TOKEN = '<your_token>'")
+        log.error("错误：未找到环境变量 GITHUB_TOKEN")
+        log.error("请先设置: $env:GITHUB_TOKEN = '<your_token>'")
         sys.exit(1)
 
     version = sys.argv[1] if len(sys.argv) > 1 else "v0.0.4"
@@ -234,20 +255,20 @@ def main():
         version = f"v{version}"
     commit_msg = sys.argv[2] if len(sys.argv) > 2 else f"{version}: 自动迭代（Loop Engineering）"
 
-    print(f"=== GitHub API 推送 {version}: {OWNER}/{REPO} ===\n")
+    log.info("=== GitHub API 推送 %s: %s/%s ===", version, OWNER, REPO)
 
     root = os.path.dirname(os.path.abspath(__file__))
     files = _collect_files(root)
-    print(f"  待推送文件数: {len(files)}\n")
+    log.info("  待推送文件数: %d", len(files))
 
     try:
         new_sha = push_commit_via_api(token, files, commit_msg)
-        print(f"\n  创建 tag {version} ...")
+        log.info("  创建 tag %s ...", version)
         create_tag(token, new_sha, version, move=True)
-        print(f"\n[OK] 推送成功: https://github.com/{OWNER}/{REPO}")
-        print(f"[OK] 版本: {version}  commit: {new_sha[:7]}")
+        log.info("[OK] 推送成功: https://github.com/%s/%s", OWNER, REPO)
+        log.info("[OK] 版本: %s  commit: %s", version, new_sha[:7])
     except Exception as exc:
-        print(f"\n[FAIL] {exc}")
+        log.error("[FAIL] %s", exc)
         sys.exit(1)
 
 

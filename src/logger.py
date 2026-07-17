@@ -8,6 +8,7 @@
 """
 import logging
 import os
+import sys
 from logging.handlers import TimedRotatingFileHandler
 
 # 项目名（用于日志文件名）
@@ -41,7 +42,7 @@ def setup_logger() -> logging.Logger:
         console.setLevel(logging.INFO)
         logger.addHandler(console)
     except Exception as exc:  # pragma: no cover
-        print(f"控制台日志初始化失败: {exc}")
+        sys.stderr.write(f"控制台日志初始化失败: {exc}\n")
 
     # 文件 Handler（失败不影响主流程）
     try:
@@ -54,7 +55,7 @@ def setup_logger() -> logging.Logger:
         file_handler.setLevel(logging.DEBUG)
         logger.addHandler(file_handler)
     except Exception as exc:  # pragma: no cover
-        print(f"文件日志初始化失败（不影响主流程）: {exc}")
+        sys.stderr.write(f"文件日志初始化失败（不影响主流程）: {exc}\n")
 
     return logger
 

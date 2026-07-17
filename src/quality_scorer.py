@@ -26,26 +26,27 @@ def tier_of(score: Optional[int]) -> str:
 
 
 def heuristic_score(record: Dict) -> int:
-    """离线启发式评分：依据字段完整度累加（满分 100）。
+    """离线启发式评分：依据字段完整度累加（满分详见 QUALITY_FULL_SCORE）。
 
-    维度：内容(20) + 规避方法(20) + 严重度(15) + 语言已匹配(20) + 类型非其他(15) + 标签(10)。
+    维度（权重来自 config 命名常量）：
+    内容 + 规避方法 + 严重度 + 语言已匹配 + 类型非"其他" + 标签。
     """
     score = 0
     if (record.get("content") or "").strip():
-        score += 20
+        score += config.QUALITY_WEIGHT_CONTENT
     if (record.get("avoidance") or "").strip():
-        score += 20
+        score += config.QUALITY_WEIGHT_AVOIDANCE
     if record.get("severity") in config.SEVERITY_OPTIONS:
-        score += 15
+        score += config.QUALITY_WEIGHT_SEVERITY
     langs = record.get("language") or []
     if langs and langs != ["通用"]:
-        score += 20
+        score += config.QUALITY_WEIGHT_LANGUAGE
     typ = record.get("type")
     if typ and typ not in ("其他", None, ""):
-        score += 15
+        score += config.QUALITY_WEIGHT_TYPE
     if record.get("tags"):
-        score += 10
-    return min(score, 100)
+        score += config.QUALITY_WEIGHT_TAGS
+    return min(score, config.QUALITY_FULL_SCORE)
 
 
 def _llm_score(record: Dict) -> int:
@@ -61,7 +62,7 @@ def score_record(record: Dict, llm: bool = False) -> int:
         try:
             s = _llm_score(record)
             log.debug("LLM 质量评分成功: score=%s", s)
-            return max(0, min(100, s))
+            return max(0, min(config.QUALITY_FULL_SCORE, s))
         except Exception as exc:
             log.warning("LLM 质量评分失败，回落 heuristic: %s", exc)
     return heuristic_score(record)

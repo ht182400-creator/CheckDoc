@@ -81,6 +81,21 @@ class TestBuildPdf(unittest.TestCase):
         self.assertIn(b"STSong", data)        # 内置中文 CID 字体已嵌入
         self.assertGreater(len(data), 500)     # 非空的真实文档
 
+    def test_pdf_special_chars_not_crash(self):
+        """B2 回归：记录含 XML 特殊字符（& < >）不得导致 reportlab 抛 SAXParseException。"""
+        try:
+            data = exporters.build_pdf([
+                _row(content="a & b < c > d", avoidance="if x < 5 then y & z"),
+                _row(content="拼写：Tom & Jerry", typ="陷阱"),
+            ])
+        except RuntimeError as exc:
+            if "no_reportlab" in str(exc):
+                self.skipTest("reportlab 未安装，跳过 PDF 断言")
+            raise
+        # 能正常生成 PDF（未崩溃即代表 XML 转义生效）
+        self.assertTrue(data.startswith(b"%PDF"))
+        self.assertTrue(data.rstrip().endswith(b"%%EOF"))
+
 
 class TestBuildXlsx(unittest.TestCase):
     """build_xlsx：Excel 字节流；无 openpyxl 时跳过。"""

@@ -40,3 +40,18 @@
 - 本机 `git push` 网络不稳，统一走 `_gh_push.py`（GitHub API）
 - 测试债务是"测试代码过时"而非业务 bug，修复方向是同步测试而非回退业务
 - 子代理（code-explorer）无命令执行能力，验证命令需主代理补跑闭环
+- **2026-07-17 深夜补丁**：`docs/09_测试案例库.md` 此前停在 v2.0（仅 JSON 139 项），Loop 8 轮新增的 5 个 Python 套件（46 用例）只纳入 verify 未回填文档——已补到 v3.0（总 185 项）。根因：收尾只更新状态类文档漏了案例库。已在 SKILL.md 迭代协议强制"案例库同步"为阻断项。
+- **2026-07-17 深夜：第三方独立评审（5 子代理 + 主代理核实）→ 整体不通过**。产物 `docs/11_第三方独立评审报告.md`。暴露 3 个阻断项：**B1** 详情编辑按钮闭包/未定义 `row` 失效（ui_app.py:1372）、**B2** PDF 导出未 XML 转义遇 `&<>` 崩溃（exporters.py:137-139）、**B3** `_gh_push.py:157` 非 UTF-8 读取致整轮推送失败。另 13 个 WARN（架构拆分/硬编码/裸except/测试缺口/文档口径）。**待修复 B1/B2/B3 后复评。**
+
+## 待修复缺陷（第三方评审，按优先级）— ✅ 已全部修复（2026-07-17 复评通过）
+| 优先级 | 项 | 位置 | 状态 |
+| --- | --- | --- | --- |
+| P0 | B1 详情编辑按钮失效 | ui_app.py:1372→现 `current_detail_row` 全局 | ✅ 已修复（新增模块级 `current_detail_row`，`_open_detail` 赋值，按钮闭包引用全局），复评 PASS |
+| P0 | B2 PDF 特符崩溃 | exporters.py | ✅ 已修复（`xml.sax.saxutils.escape` 转义所有用户文本）+ 补 `test_pdf_special_chars_not_crash`，复评 PASS |
+| P0 | B3 推送 GBK 失败 | _gh_push.py | ✅ 已修复（新增 `_read_text`：utf-8 失败回落 gb18030；全仓 `print` 改 `log`），复评 PASS |
+| P1 | W4 硬编码 9 处 | config.py 常量化 | ✅ 已修复（QUALITY_WEIGHT_*/QUALITY_FULL_SCORE/HIGHLIGHTJS_CDN_VERSION/TABLE_*/SECONDS_PER_DAY 全部提取），复评 PASS |
+| P1 | W5 裸 except | keywords_discovery.py:175 | ✅ 经核实为**误报**（该行实为 `except Exception:`），`src/` 全仓无裸 `except:`，无需修 |
+| P1 | W6 print | logger.py / _gh_push.py | ✅ 已修复（logger.py→sys.stderr；_gh_push.py 全部 16 处→log，残留 1 处已补改），复评 PASS |
+| P2 | W1-W3/W7-W13 | 架构/测试/文档 | 📋 下一轮 Loop（ui_app.py 1374 行超 500 行拆分、测试缺口、文档收尾） |
+
+> 复评：2026-07-17 授权修复后重新引入 5 个独立子代理复评，**全部维度通过**，无遗留真实 bug。`loop/verify.py` 编译+7 套件 ALL PASS。详见 `docs/11_第三方独立评审报告.md` §7。

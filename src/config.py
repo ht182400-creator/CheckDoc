@@ -61,6 +61,14 @@ QUALITY_TIER_NONE: str = "未评分"           # 未评分等级文字
 QUALITY_TIER_LOW: str = "低"               # 低分等级文字
 QUALITY_TIER_MID: str = "中"               # 中分等级文字
 QUALITY_TIER_HIGH: str = "高"              # 高分等级文字
+# 启发式评分各维度权重（heuristic_score 累加用，总和=QUALITY_FULL_SCORE）
+QUALITY_WEIGHT_CONTENT: int = 20     # 内容非空
+QUALITY_WEIGHT_AVOIDANCE: int = 20   # 规避方法非空
+QUALITY_WEIGHT_SEVERITY: int = 15    # 严重度为有效选项
+QUALITY_WEIGHT_LANGUAGE: int = 20    # 语言已匹配（非"通用"）
+QUALITY_WEIGHT_TYPE: int = 15        # 类型已匹配（非"其他"）
+QUALITY_WEIGHT_TAGS: int = 10        # 标签非空
+QUALITY_FULL_SCORE: int = 100        # 满分（累加上限）
 # 导出时附加的非 Schema 字段（质量分 + 原始路径）
 EXTRA_EXPORT_FIELDS: List[str] = [QUALITY_SCORE_KEY, "_path"]
 
@@ -78,6 +86,13 @@ AUTOSYNC_DEFAULT_INTERVAL: str = "15m"                  # 默认间隔 key
 CODE_HIGHLIGHT_ENABLED: bool = True     # 是否启用详情代码块高亮（依赖 highlight.js）
 # highlight.js 主题（github 浅色，离线时优雅降级为纯文本代码块）
 CODE_HIGHLIGHT_THEME: str = "github"
+# highlight.js CDN 版本（注入 <link>/<script> 时使用）
+HIGHLIGHTJS_CDN_VERSION: str = "11.9.0"
+# 表格分页配置（NiceGUI table pagination）
+TABLE_DEFAULT_PAGE_SIZE: int = 50
+TABLE_PAGE_SIZE_OPTIONS: list = [20, 50, 100, 0]
+# 时间换算常量（增量同步按时间范围过滤时用）
+SECONDS_PER_DAY: int = 86400
 
 # ---------------------------------------------------------------------------
 # 字段类型
