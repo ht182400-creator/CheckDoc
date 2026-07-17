@@ -43,15 +43,15 @@ python -m src.main   # http://127.0.0.1:8080
 
 ## 5. 迭代协议（每次 loop 执行顺序）
 1. **发现（discovery）**：运行 `python loop/verify.py` 看测试/编译现状；读 `.codebuddy/memory/BACKLOG.md` 取最高优先级待办；读 `MEMORY.md` 看路线。
-2. **规划（planning）**：从 BACKLOG 选 1 项（默认顺序：修测试债务 → LLM质量评分 → 定时同步 → 代码高亮），列出改动文件。
+2. **规划（planning）**：从 BACKLOG 选 1 项（当前轮次 = P2 架构/测试/文档整改 W1-W13：ui_app 拆分 → 测试缺口 → 文档收尾），列出改动文件。
 3. **执行（execution）**：在**隔离 worktree** 中改代码（`git worktree add ../memoalign-loop-<date> -b loop/<date>`）。
-4. **验证（verification，独立于执行）**：派 **code-explorer 子代理** 独立重读改动文件 + 跑 `loop/verify.py`，给出通过/未通过结论。禁止执行代理自己判定自己。子代理审查清单**必须包含**：① 代码逻辑正确性；② **测试是否同步**——新增/修改的 `tests/*.py` 用例是否已在 `docs/09_测试案例库.md` §13 登记（JSON 线改动是否同步 §1-§12 与 `test_data.json`）；③ 受影响页面/模块的回归影响。未登记案例库视为阻断项。
+4. **验证（verification，独立于执行）**：派 **code-explorer 子代理** 独立重读改动文件 + 跑 `loop/verify.py`，给出通过/未通过结论。禁止执行代理自己判定自己。子代理审查清单**必须包含**：① 代码逻辑正确性；② **测试是否同步**——新增/修改的 `tests/*.py` 用例是否已在 `docs/09_测试案例库.md` §13 登记（JSON 线改动是否同步 §1-§12 与 `test_data.json`）；③ 受影响页面/模块的回归影响。未登记案例库视为阻断项（且 `loop/verify.py` 的 `case_library` 静态检查会直接失败）。
 5. **迭代（iteration）**：验证未过 → 回到执行修复；验证过 → `git add` 相关文件 → `git commit` → 用 `_gh_push.py` 推送 + 打 tag（v0.0.x）。
 6. **状态（state）**：更新 BACKLOG（勾掉完成项、追加新发现）、MEMORY（路线进度）、**`docs/09_测试案例库.md`（新增/修改的测试必须登记用例行，与 `tests/*.py` 一一对应）**、相关 `docs/`（评审报告/架构/FAQ 无过期）。
 
 ## 6. 停止条件（"完整可用版本"定义）
 满足以下全部即停止自动迭代，转为人工接管：
-- P2 剩余 3 项全部 ✅（LLM 质量评分、定时同步、代码高亮）
-- `python loop/verify.py` 全绿（含修复后的测试）
-- `docs/` 与代码同步（README/架构/FAQ 无过期）
+- P2 全部完成 ✅，含：原 P2-3 项（LLM 质量评分、定时同步、代码高亮）+ 第三方评审整改 **W1-W13**（ui_app 架构拆分 / FileMeta 下沉 / 硬编码收敛 / 测试缺口补齐 / 文档口径统一 / 案例库同步静态检查）
+- `python loop/verify.py` 全绿（编译 + UI 模块导入冒烟 + 案例库同步静态检查 + 8 套件）
+- `docs/` 与代码同步（README/架构/FAQ/评审报告无过期）
 - 已通过 `_gh_push.py` 推送并打新 tag

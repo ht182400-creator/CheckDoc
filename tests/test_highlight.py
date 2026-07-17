@@ -5,7 +5,8 @@
 """
 import unittest
 
-from src import config, ui_app
+from src import config
+from src import _ui_helpers as H
 
 
 class TestCodeHighlight(unittest.TestCase):
@@ -15,12 +16,12 @@ class TestCodeHighlight(unittest.TestCase):
         self.assertIsInstance(config.CODE_HIGHLIGHT_ENABLED, bool)
 
     def test_head_html_loads_highlightjs(self):
-        html = ui_app.HIGHLIGHT_HEAD_HTML
+        html = H.HIGHLIGHT_HEAD_HTML
         self.assertIn("highlight.js", html)
         self.assertIn("cdn.jsdelivr.net", html)
 
     def test_head_html_uses_configured_theme(self):
-        html = ui_app.HIGHLIGHT_HEAD_HTML
+        html = H.HIGHLIGHT_HEAD_HTML
         self.assertIn(config.CODE_HIGHLIGHT_THEME, html)
 
 

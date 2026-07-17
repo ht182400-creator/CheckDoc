@@ -3,6 +3,13 @@
     "ok": true,
     "rc": 0
   },
+  "ui_import": {
+    "ok": true,
+    "rc": 0
+  },
+  "case_library": {
+    "ok": true
+  },
   "tests": {
     "tests.test_pipeline": {
       "ok": true,
@@ -21,6 +28,10 @@
       "rc": 0
     },
     "tests.test_highlight": {
+      "ok": true,
+      "rc": 0
+    },
+    "tests.test_ui_helpers": {
       "ok": true,
       "rc": 0
     },

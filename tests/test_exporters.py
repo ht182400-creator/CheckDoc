@@ -96,6 +96,22 @@ class TestBuildPdf(unittest.TestCase):
         self.assertTrue(data.startswith(b"%PDF"))
         self.assertTrue(data.rstrip().endswith(b"%%EOF"))
 
+    def test_pdf_huge_text_not_crash(self):
+        """W9 边界：超大单条内容 + 大量记录不得崩溃，且生成合法 PDF。"""
+        try:
+            huge = "这是一段超长笔记。" * 5000  # 约 5 万字符的单条内容
+            many = [_row(content=huge, avoidance="规避" * 1000, score=i % 100)
+                    for i in range(200)]            # 200 条记录
+            data = exporters.build_pdf(many)
+        except RuntimeError as exc:
+            if "no_reportlab" in str(exc):
+                self.skipTest("reportlab 未安装，跳过 PDF 断言")
+            raise
+        self.assertTrue(data.startswith(b"%PDF"))
+        self.assertTrue(data.rstrip().endswith(b"%%EOF"))
+        self.assertIn(b"STSong", data)
+        self.assertGreater(len(data), 1000)
+
 
 class TestBuildXlsx(unittest.TestCase):
     """build_xlsx：Excel 字节流；无 openpyxl 时跳过。"""

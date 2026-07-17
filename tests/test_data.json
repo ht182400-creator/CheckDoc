@@ -1,6 +1,6 @@
 {
   "_version": "2.0",
-  "_description": "MemoAlign 全量测试数据库——覆盖 139 个用例中可 JSON 化的 ~128 项",
+  "_description": "MemoAlign 全量测试数据库——JSON 数据驱动 139 个用例（与 docs/09 口径统一）",
   "_updated": "2026-07-15",
 
   "scanner": [

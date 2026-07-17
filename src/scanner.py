@@ -29,6 +29,23 @@ class FileMeta:
     mtime: float
     size: int
 
+    @classmethod
+    def from_path(cls, path: str) -> "FileMeta":
+        """由文件绝对路径构造 FileMeta（W2：UI 层构造逻辑下沉到此）。
+
+        project 取 memory 的上级目录名，与 scan_memory_md 推导规则一致，
+        避免 UI 层重复推导导致与 scanner 不一致。
+        """
+        project = os.path.basename(os.path.dirname(os.path.dirname(path)))
+        st = os.stat(path)
+        return cls(
+            path=path,
+            name=os.path.splitext(os.path.basename(path))[0],
+            project=project,
+            mtime=st.st_mtime,
+            size=st.st_size,
+        )
+
 
 def _iter_memory_dirs(root: str):
     """生成器：递归产出所有名为 MEMORY_DIR_NAME 的目录（异常隔离）。"""

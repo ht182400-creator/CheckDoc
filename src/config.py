@@ -73,6 +73,40 @@ QUALITY_FULL_SCORE: int = 100        # 满分（累加上限）
 EXTRA_EXPORT_FIELDS: List[str] = [QUALITY_SCORE_KEY, "_path"]
 
 # ---------------------------------------------------------------------------
+# UI 颜色映射（W3：从 ui_app/graph_view 收敛到单一真相源）
+# ---------------------------------------------------------------------------
+# NiceGUI chip / 徽标颜色名（按类型 / 语言 / 平台分类着色）
+TYPE_COLOR_MAP: dict = {
+    "问题": "red", "陷阱": "orange", "最佳实践": "green",
+    "规范": "teal", "经验": "blue", "发布": "purple",
+    "环境配置": "indigo", "命令行": "cyan", "兼容性": "amber",
+    "其他": "grey",
+}
+LANG_COLOR_MAP: dict = {
+    "Python": "green", "JavaScript/TS": "yellow", "Go": "cyan",
+    "Rust": "orange", "Shell/Bash": "blue", "PowerShell": "indigo",
+    "Batch/CMD": "purple", "Docker": "teal", "Git/GitHub": "pink",
+    "通用": "grey", "其他": "grey",
+}
+PLATFORM_COLOR_MAP: dict = {
+    "Windows": "blue", "Linux": "orange", "macOS": "purple",
+    "跨平台": "grey",
+}
+# 语言特殊分类标签（W3：避免 "通用"/"通用（待分类）" 散落 UI）
+LANG_GENERIC: str = "通用"
+LANG_PENDING: str = "通用（待分类）"
+
+# ---------------------------------------------------------------------------
+# 筛选 / UI 上限（W3：从 ui_app 收敛的魔法数字）
+# ---------------------------------------------------------------------------
+# 时间范围筛选选项 -> 天数（"all" 在 UI 层单独处理）
+TIME_FILTER_DAYS: dict = {"7d": 7, "30d": 30, "90d": 90}
+# 目录浏览器单页最多展示子目录数
+DIR_BROWSE_MAX: int = 200
+# 候选关键词面板最多展示条数
+CANDIDATE_DISPLAY_MAX: int = 30
+
+# ---------------------------------------------------------------------------
 # 定时增量同步（P2-3）
 # ---------------------------------------------------------------------------
 AUTOSYNC_ENABLED: bool = False                          # 是否默认开启自动同步

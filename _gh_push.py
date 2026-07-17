@@ -33,7 +33,8 @@ EXCLUDE_DIRS = {".git", "__pycache__", ".venv", "venv", "node_modules", "dist", 
                 ".cache", ".pytest_cache"}
 EXCLUDE_SUFFIX = (".pyc", ".log")
 # 仓库根目录下的临时/调试文件
-ROOT_TEMP = {"_add_debug.py", "_test_multi.py", "_test_out.txt", "_server.log", "_server_err.log"}
+ROOT_TEMP = {"_add_debug.py", "_test_multi.py", "_test_out.txt", "_server.log",
+            "_server_err.log", "_verify_out.txt"}
 # tests/ 下的临时产物（诊断脚本、临时 txt、运行日志）
 TESTS_TEMP_PREFIX = ("_",)        # tests/_xxx.py / tests/_xxx.txt
 TESTS_LOG_PREFIX = ("test_run_",)  # tests/test_run_*.log

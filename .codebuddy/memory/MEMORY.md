@@ -13,12 +13,13 @@
 - **P1 (v0.3, 5.4h) ✅ 已完成**：全文检索（M3）、LLM 抽取 UI 化/批量重抽（M2）、规避增强、交叉统计、缓存瘦身、CSV 含路径、截断告警
 - **P2 (v0.7, 11.5h) ✅ 已完成**：✅ treemap 图谱（M3）、✅ Excel 导出、✅ 目录分组筛选、✅ 时间范围筛选、✅ 多记录抽取（按##拆分）、✅ 统计面板重构、✅ 交互式候选面板（点击加入词库）、✅ 候选发现修复、✅ 目录浏览、✅ 筛选栏紧凑化、✅ 表格分页、✅ CSV/MD 导出修复（bytes+BOM）、✅ 测试债务清零（v0.0.4，verify 全绿）、✅ LLM 质量评分（v0.0.5）、✅ 定时增量同步（v0.0.6）、✅ 代码高亮（v0.0.7：highlight.js 注入 + #detail-body 精准定位 + 离线优雅降级）。**停止条件已满足：每日 09:00 自动化下次触发时自动停止。**
 - **P3 (v0.0.8) ✅ 已完成（用户手动追加）**：✅ PDF 导出（src/exporters.py build_pdf + reportlab STSong-Light 中文渲染；CSV/Excel/MD 导出重构进同一纯函数模块）、✅ 记录内编辑/修正低分（详情"✏️ 编辑"对话框写回记录+缓存并重算质量分；"修正低分"按钮按可见低分队列逐条编辑，src/record_edit.py 纯逻辑）、✅ K3 可选 LLM 后端（config.LLM_PRESETS 新增 Kimi K3：base_url=https://api.moonshot.ai/v1, model=kimi-k3；LLM 设置区"后端"下拉切换自动填充 base_url/model，复用既有 OpenAI 兼容 LLMExtractor）。verify 7 套件全绿，独立子代理审查通过。
-- 详见：`docs/08_综合评审报告.md`
+- **P4 (v0.1.0, 2026-07-18) ✅ 已完成（第三方评审 W1-W13 整改）**：✅ ui_app.py 1380→~200 行拆分（_ui_state/_ui_helpers/_ui_filters/_ui_dialogs/_ui_actions）、✅ FileMeta 构造下沉 scanner.FileMeta.from_path（W2）、✅ 颜色/时间/阈值/上限硬编码收敛 config（W3）、✅ UI 纯逻辑单测 tests/test_ui_helpers.py(13)（W8）、✅ PDF 超大文本边界用例（W9）、✅ docs/09 与 JSON 口径统一 139（W10）、✅ 空态硬禁用按钮（W11）、✅ SKILL 停止条件对齐（W12）、✅ verify.py 固化 ui_import 冒烟 + case_library 静态检查（W13）。loop/verify.py 全绿（编译+ui_import+case_library+8 套件），独立 code-explorer 复评通过。
+- 详见：`docs/08_综合评审报告.md`、`docs/11_第三方独立评审报告.md` §8
 
 ## Loop Engineering（2026-07-17 搭建）
 - 项目已改造为**自我迭代循环**，理论依据 Anthropic《Designing loops with Fable 5》五组件+记忆层。
 - 五组件落地：① 自动化 `automation_update` 每日 09:00 触发（recurring，ACTIVE）；② `git worktree` 隔离（`loop/worktree.ps1`）；③ 技能 `.codebuddy/skills/memoalign-loop/SKILL.md`（意图债务/陷阱清单）；④ 连接器 `_gh_push.py`（GitHub REST API）；⑤ 子代理 `Task`(code-explorer) 独立验证；记忆层 `.codebuddy/memory/BACKLOG.md`+`MEMORY.md`。
 - 验证代理入口：`python loop/verify.py`（编译+unittest，输出 tests/loop_verify.json，失败 exit 1）。
 - 文档：`docs/10_Loop工程化与自我迭代.md`（含 §2.1 K3 关系澄清、§7 每日跑完后的处理）。
-- 停止条件：P2 三项完成 + verify 全绿 + 文档同步 + 已推送。
+- 停止条件：P2（原三项）+ 第三方评审 W1-W13 全部完成 + verify 全绿（含 ui_import 冒烟与 case_library 静态检查）+ 文档同步 + 已推送（v0.1.0 已达）。
 - **模型后端（2026-07-17 确认）**：本 Loop 架构模型无关。K3=Kimi K3 是月之暗面 2026-07-16 发布的 2.8T 开源模型（100万token上下文/原生视觉/长程编码强），是"执行/验证代理"可选引擎之一；当前自动化默认用 IDE 内置模型，未来可切 K3 API 或本地权重，五组件结构不动。
