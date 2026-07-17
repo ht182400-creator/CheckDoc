@@ -15,6 +15,10 @@
     "tests.test_quality": {
       "ok": true,
       "rc": 0
+    },
+    "tests.test_sync": {
+      "ok": true,
+      "rc": 0
     }
   },
   "passed": true

@@ -22,6 +22,7 @@ from . import keywords as kw_mod
 from . import keywords_discovery as discovery
 from . import graph_view
 from . import quality_scorer
+from . import sync
 from .config import FieldType
 from .logger import log
 
@@ -65,6 +66,10 @@ project_filter_widget = None       # 项目多选筛选
 time_filter_widget = None          # 时间范围筛选
 # P2-2：质量评分筛选
 quality_filter_widget = None       # 质量等级单选筛选
+# P2-3：定时增量同步
+_sync_timer = None                 # NiceGUI 定时器句柄（None=未开启）
+autosync_switch = None             # 自动同步开关
+autosync_interval = None           # 自动同步间隔下拉
 
 
 def _build_columns() -> List[Dict]:
@@ -935,6 +940,52 @@ async def _batch_quality_score() -> None:
             scan_btn.enable()
 
 
+async def _incremental_sync() -> None:
+    """增量同步：对当前根目录重扫，对比前后差异并通知（P2-3）。
+
+    复用 run_scan 的增量缓存机制；仅额外计算差异摘要推送给用户。
+    """
+    global _scanning
+    if _scanning:
+        return  # 静默跳过，避免定时器与手动扫描竞态
+    # 快照旧记录（按 _path）
+    old_snapshot = [dict(r) for r in records]
+    await run_scan()
+    diff = sync.compute_diff(old_snapshot, records)
+    summary = sync.summarize(diff)
+    if diff["added"] or diff["changed"] or diff["removed"]:
+        ui.notify(f"增量同步：{summary}", type="info")
+        log.info("增量同步完成: %s", summary)
+    else:
+        ui.notify("增量同步：无变化", type="positive")
+
+
+def _toggle_autosync() -> None:
+    """自动同步开关：开启则启动 NiceGUI 定时器，关闭则取消。"""
+    global _sync_timer
+    try:
+        if autosync_switch is not None and autosync_switch.value:
+            interval = config.AUTOSYNC_INTERVALS.get(
+                autosync_interval.value if autosync_interval else config.AUTOSYNC_DEFAULT_INTERVAL,
+                config.AUTOSYNC_INTERVALS[config.AUTOSYNC_DEFAULT_INTERVAL],
+            )
+            if _sync_timer is not None:
+                _sync_timer.cancel()
+            # ui.timer 接受协程回调；周期性触发增量同步
+            _sync_timer = ui.timer(interval, _incremental_sync)
+            ui.notify(f"已启用自动同步（每 {interval // 60} 分钟）", type="positive")
+            log.info("自动同步已启用: 间隔=%d秒", interval)
+        else:
+            if _sync_timer is not None:
+                _sync_timer.cancel()
+                _sync_timer = None
+            ui.notify("已关闭自动同步", type="warning")
+            log.info("自动同步已关闭")
+    except Exception as exc:
+        log.error("切换自动同步异常: %s", exc)
+        ui.notify(f"自动同步切换失败: {exc}", type="negative")
+
+
 async def run_scan() -> None:
     """扫描 → 抽取（增量缓存）→ 渲染表格与筛选栏。
 
@@ -1026,6 +1077,7 @@ def create_ui() -> None:
     global metric_files, metric_total, metric_matched, metric_unmatched, metric_platforms, metric_quality
     global chips_types, chips_langs, chips_platforms, chips_unmatched
     global _llm_enabled_switch, _llm_url_input, _llm_key_input, _llm_model_input, _llm_status_label
+    global _sync_timer, autosync_switch, autosync_interval
 
     # 标题栏
     with ui.card().classes("w-full q-pa-md"):
@@ -1052,6 +1104,17 @@ def create_ui() -> None:
                 "全文检索", placeholder="搜索全部字段及原文内容…"
             ).props("outlined clearable dense").classes("grow")
             global_search_input.on("update:model-value", lambda *_: _apply_filters())
+
+        # P2-3：定时增量同步
+        with ui.row().classes("items-center gap-2 w-full q-mt-sm"):
+            ui.button("增量同步", on_click=_incremental_sync).props("outline")
+            autosync_switch = ui.switch("自动同步", value=config.AUTOSYNC_ENABLED).props("dense")
+            autosync_switch.on("update:model-value", lambda *_: _toggle_autosync())
+            autosync_interval = ui.select(
+                options={k: f"{int(v) // 60}分" for k, v in config.AUTOSYNC_INTERVALS.items()},
+                value=config.AUTOSYNC_DEFAULT_INTERVAL,
+            ).props("dense outlined").style("min-width:90px")
+            autosync_interval.on("update:model-value", lambda *_: _toggle_autosync())
 
         # P1-2：LLM 抽取设置（可折叠）
         with ui.expansion("LLM 抽取设置", icon="smart_toy", value=False).classes("w-full q-mt-sm"):
