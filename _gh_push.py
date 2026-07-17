@@ -22,13 +22,32 @@ REPO = "CheckDoc"
 API_BASE = "https://api.github.com"
 
 # 排除项：不纳入推送的目录 / 文件
-EXCLUDE_DIRS = {".git", "__pycache__", ".venv", "venv", "node_modules", "dist", "build"}
-EXCLUDE_SUFFIX = (".pyc",)
+EXCLUDE_DIRS = {".git", "__pycache__", ".venv", "venv", "node_modules", "dist", "build",
+                ".cache", ".pytest_cache"}
+EXCLUDE_SUFFIX = (".pyc", ".log")
 # 仓库根目录下的临时/调试文件
 ROOT_TEMP = {"_add_debug.py", "_test_multi.py", "_test_out.txt", "_server.log", "_server_err.log"}
 # tests/ 下的临时产物（诊断脚本、临时 txt、运行日志）
 TESTS_TEMP_PREFIX = ("_",)        # tests/_xxx.py / tests/_xxx.txt
 TESTS_LOG_PREFIX = ("test_run_",)  # tests/test_run_*.log
+
+
+def _should_exclude(rel: str) -> bool:
+    """判断相对路径是否应被排除（用于收集与远程删除）。"""
+    if rel.startswith(".git/"):
+        return True
+    parts = rel.split("/")
+    if any(p in EXCLUDE_DIRS for p in parts):
+        return True
+    fn = parts[-1]
+    if fn.endswith(EXCLUDE_SUFFIX):
+        return True
+    if rel in ROOT_TEMP:
+        return True
+    if rel.startswith("tests/"):
+        if fn.startswith(TESTS_TEMP_PREFIX) or fn.startswith(TESTS_LOG_PREFIX):
+            return True
+    return False
 
 
 def _collect_files(root: str):
@@ -39,20 +58,34 @@ def _collect_files(root: str):
         for fn in fnames:
             full = os.path.join(dp, fn)
             rel = os.path.relpath(full, root).replace(os.sep, "/")
-            if rel.startswith(".git/"):
+            if _should_exclude(rel):
                 continue
-            if fn.endswith(EXCLUDE_SUFFIX):
-                continue
-            if rel in ROOT_TEMP:
-                continue
-            if rel.startswith("tests/"):
-                if fn.startswith(TESTS_TEMP_PREFIX) or fn.startswith(TESTS_LOG_PREFIX):
-                    continue
             if os.path.isfile(full):
                 out.append((rel, full))
     # 稳定排序，保证每次推送一致
     out.sort(key=lambda x: x[0])
     return out
+
+
+def _collect_deletions(token, base_tree_sha, keep_set):
+    """获取远程 base tree，返回应删除的条目（日志/缓存等被排除文件）。
+
+    返回形如 [{"path":..., "mode":"100644","type":"blob","sha":None}] 的删除项；
+    若获取失败则返回空列表（不影响主流程）。
+    """
+    code, tree = _api("GET", f"/repos/{OWNER}/{REPO}/git/trees/{base_tree_sha}?recursive=1", token)
+    if code != 200:
+        return []
+    dels = []
+    for item in tree.get("tree", []):
+        if item.get("type") != "blob":
+            continue
+        p = item["path"]
+        if p in keep_set or not _should_exclude(p):
+            continue
+        # 远程存在但本地应排除 → 删除
+        dels.append({"path": p, "mode": "100644", "type": "blob", "sha": None})
+    return dels
 
 
 def _api(method, path, token, body=None):
@@ -81,9 +114,11 @@ def get_latest_commit_sha(token):
     raise RuntimeError(f"获取 master ref 失败: {code} {data}")
 
 
-def create_tag(token, sha, tag_name):
-    """通过 API 创建 tag ref（已存在则跳过）。"""
+def create_tag(token, sha, tag_name, move=False):
+    """通过 API 创建 tag ref。move=True 时若已存在则先删除再重建（幂等）。"""
     ref_name = f"refs/tags/{tag_name}"
+    if move:
+        _api("DELETE", f"/repos/{OWNER}/{REPO}/git/refs/tags/{tag_name}", token)
     code, data = _api("POST", f"/repos/{OWNER}/{REPO}/git/refs", token, {
         "ref": ref_name,
         "sha": sha,
@@ -109,6 +144,7 @@ def push_commit_via_api(token, files, commit_msg):
     print(f"  远程 master SHA: {master_sha[:7]}, tree: {base_tree_sha[:7]}")
 
     tree_items = []
+    keep_set = set()
     for path, abs_path in files:
         with open(abs_path, "r", encoding="utf-8") as f:
             content = f.read()
@@ -124,14 +160,38 @@ def push_commit_via_api(token, files, commit_msg):
             "type": "blob",
             "sha": blob["sha"],
         })
+        keep_set.add(path.replace("\\", "/"))
         print(f"  blob: {path} ({len(content)} bytes)")
 
-    code, tree = _api("POST", f"/repos/{OWNER}/{REPO}/git/trees", token, {
-        "base_tree": base_tree_sha,
-        "tree": tree_items,
-    })
-    if code != 201:
-        raise RuntimeError(f"创建 tree 失败: {code} {tree}")
+    # 清理远程已存在的冗余文件（日志/缓存等本地应排除项）
+    deletions = _collect_deletions(token, base_tree_sha, keep_set)
+    if deletions:
+        print(f"  清理远程冗余文件: {len(deletions)} 个")
+        for d in deletions:
+            print(f"    删除: {d['path']}")
+        tree_items = tree_items + deletions
+
+    try:
+        code, tree = _api("POST", f"/repos/{OWNER}/{REPO}/git/trees", token, {
+            "base_tree": base_tree_sha,
+            "tree": tree_items,
+        })
+        if code != 201:
+            raise RuntimeError(f"创建 tree 失败: {code} {tree}")
+    except Exception:
+        # 若删除项导致 tree 创建失败（API 不接受 sha=null），退回仅新增/更新
+        if deletions:
+            print("  [warn] 含删除项的 tree 创建失败，退回仅新增/更新模式")
+            tree_items = [t for t in tree_items if t.get("sha") is not None]
+            code, tree = _api("POST", f"/repos/{OWNER}/{REPO}/git/trees", token, {
+                "base_tree": base_tree_sha,
+                "tree": tree_items,
+            })
+            if code != 201:
+                raise RuntimeError(f"创建 tree 失败: {code} {tree}")
+        else:
+            raise
+
     print(f"  tree: {tree['sha'][:7]}")
 
     code, new_commit = _api("POST", f"/repos/{OWNER}/{REPO}/git/commits", token, {
@@ -175,7 +235,7 @@ def main():
     try:
         new_sha = push_commit_via_api(token, files, commit_msg)
         print(f"\n  创建 tag {version} ...")
-        create_tag(token, new_sha, version)
+        create_tag(token, new_sha, version, move=True)
         print(f"\n[OK] 推送成功: https://github.com/{OWNER}/{REPO}")
         print(f"[OK] 版本: {version}  commit: {new_sha[:7]}")
     except Exception as exc:
