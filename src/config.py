@@ -41,6 +41,19 @@ LLM_MODEL: str = "gpt-4o-mini"
 LLM_TIMEOUT_SEC: int = 30      # 网络请求超时
 
 # ---------------------------------------------------------------------------
+# 质量评分（P2-2，LLM 质量评分 / 置信度）
+# ---------------------------------------------------------------------------
+QUALITY_SCORE_KEY: str = "quality_score"   # 记录内质量分字段名（0-100，缺失/None=未评分）
+QUALITY_HIGH_THRESHOLD: int = 80           # ≥ 该值判"高"
+QUALITY_MID_THRESHOLD: int = 60            # 该值~HIGH 判"中"，< 该值判"低"
+QUALITY_TIER_NONE: str = "未评分"           # 未评分等级文字
+QUALITY_TIER_LOW: str = "低"               # 低分等级文字
+QUALITY_TIER_MID: str = "中"               # 中分等级文字
+QUALITY_TIER_HIGH: str = "高"              # 高分等级文字
+# 导出时附加的非 Schema 字段（质量分 + 原始路径）
+EXTRA_EXPORT_FIELDS: List[str] = [QUALITY_SCORE_KEY, "_path"]
+
+# ---------------------------------------------------------------------------
 # 字段类型
 # ---------------------------------------------------------------------------
 class FieldType:

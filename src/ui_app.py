@@ -21,6 +21,7 @@ from . import config, scanner, extractor, store
 from . import keywords as kw_mod
 from . import keywords_discovery as discovery
 from . import graph_view
+from . import quality_scorer
 from .config import FieldType
 from .logger import log
 
@@ -38,6 +39,7 @@ metric_total = None         # 抽取出的记录数
 metric_matched = None       # 关键词已匹配记录数
 metric_unmatched = None     # 关键词未匹配记录数
 metric_platforms = None
+metric_quality = None      # 平均质量分（P2-2）
 chips_types = None
 chips_langs = None
 chips_platforms = None
@@ -61,6 +63,8 @@ _llm_status_label = None
 # P2-5/6：项目筛选 + 时间筛选
 project_filter_widget = None       # 项目多选筛选
 time_filter_widget = None          # 时间范围筛选
+# P2-2：质量评分筛选
+quality_filter_widget = None       # 质量等级单选筛选
 
 
 def _build_columns() -> List[Dict]:
@@ -83,6 +87,16 @@ def _build_columns() -> List[Dict]:
                             "max-width:400px;overflow-wrap:break-word;"
                             "white-space:normal;")
         cols.append(col)
+    # P2-2：质量分列（非 Schema 字段，单独追加，带等级徽标）
+    cols.append({
+        "name": config.QUALITY_SCORE_KEY,
+        "label": "质量分",
+        "field": config.QUALITY_SCORE_KEY,
+        "sortable": True,
+        "align": "left",
+        "headerStyle": "width:90px;",
+        "style": "width:90px;",
+    })
     return cols
 
 
@@ -96,6 +110,8 @@ def _on_row_click(e) -> None:
 
 def _open_detail(row: Dict) -> None:
     """打开详情对话框，展示元数据与原文 Markdown。"""
+    q_score = row.get(config.QUALITY_SCORE_KEY)
+    q_tier = quality_scorer.tier_of(q_score)
     meta_md.set_content(
         f"**来源**：{row.get('source', '')}  \n"
         f"**路径**：`{row.get('_path', '')}`  \n"
@@ -103,6 +119,7 @@ def _open_detail(row: Dict) -> None:
         f"**平台**：{row.get('platform', '')}  \n"
         f"**类型**：{row.get('type', '')}  \n"
         f"**严重度**：{row.get('severity', '')}  \n"
+        f"**质量分**：{q_score if q_score is not None else '未评分'}（{q_tier}）  \n"
         f"**标签**：{row.get('tags', '')}"
     )
     body_md.set_content(row.get("_raw", "") or "（无内容）")
@@ -169,6 +186,13 @@ def _apply_filters() -> None:
                         cutoff = time.time() - days * 86400
                         if mtime_val < cutoff:
                             continue  # 超过时间范围，跳过
+        # P2-2：质量等级筛选
+        if ok and quality_filter_widget is not None:
+            q_val = quality_filter_widget.value
+            if q_val and q_val != "all":
+                rec_tier = quality_scorer.tier_of(r.get(config.QUALITY_SCORE_KEY))
+                if rec_tier != q_val:
+                    continue  # 等级不匹配，跳过
         if ok:
             visible.append(r)
     _update_stats(visible)
@@ -199,6 +223,10 @@ def _update_stats(rows: List[Dict]) -> None:
     metric_matched.text = f"{matched}"
     metric_unmatched.text = f"{unmatched}"
     metric_platforms.text = f"{len(platform_counts)}"
+    # P2-2：平均质量分（仅统计已评分整数）
+    _scores = [r.get(config.QUALITY_SCORE_KEY) for r in rows
+               if isinstance(r.get(config.QUALITY_SCORE_KEY), int)]
+    metric_quality.text = f"{sum(_scores) / len(_scores):.0f}" if _scores else "-"
 
     # 3) 三行 chips（Top N）—— 语言行排除"通用"和"通用（待分类）"（独立显示）
     _render_chips(chips_types, type_counts, max_n=8, color_map=TYPE_COLOR)
@@ -348,6 +376,17 @@ def _build_filter_bar() -> None:
                     time_filter_widget.props("dense outlined")
                     time_filter_widget.style("min-width: 80px")
                     time_filter_widget.on("update:model-value", lambda *_: _apply_filters())
+                # P2-2：质量等级筛选
+                with ui.row().classes("items-center gap-1"):
+                    ui.label("质量").classes("text-caption text-grey").style("min-width:50px")
+                    quality_filter_widget = ui.select(
+                        options={"all": "全部", "高": "高", "中": "中",
+                                 "低": "低", "未评分": "未评分"},
+                        value="all",
+                    )
+                    quality_filter_widget.props("dense outlined")
+                    quality_filter_widget.style("min-width: 90px")
+                    quality_filter_widget.on("update:model-value", lambda *_: _apply_filters())
 
 
 def _flatten_records(rows: List[Dict]) -> List[Dict]:
@@ -376,7 +415,7 @@ def _export_csv() -> None:
     if not table or not table.rows:
         ui.notify("表格无数据可导出", type="warning")
         return
-    fieldnames = [f.key for f in config.SCHEMA] + ["_path"]
+    fieldnames = [f.key for f in config.SCHEMA] + config.EXTRA_EXPORT_FIELDS
     buf = io.StringIO()
     # 加 BOM 让 Excel 正确识别 UTF-8
     buf.write("\ufeff")
@@ -406,8 +445,8 @@ def _export_xlsx() -> None:
         wb = openpyxl.Workbook()
         ws = wb.active
         ws.title = "MemoAlign"
-        # 表头：Schema 字段 + _path
-        fieldnames = [f.key for f in config.SCHEMA] + ["_path"]
+        # 表头：Schema 字段 + 质量分 + _path
+        fieldnames = [f.key for f in config.SCHEMA] + config.EXTRA_EXPORT_FIELDS
         ws.append(fieldnames)
         for r in (table.rows or []):
             row = [_flatten(r.get(f.key)) for f in config.SCHEMA]
@@ -442,7 +481,9 @@ def _export_md() -> None:
         for r in items:
             lang = _flatten(r.get("language"))
             av = _flatten(r.get("avoidance"))
-            lines.append(f"- **{r.get('content', '')}** 〔{lang}〕 {av}")
+            q = r.get(config.QUALITY_SCORE_KEY)
+            q_text = f" 质量分:{q}" if isinstance(q, int) else ""
+            lines.append(f"- **{r.get('content', '')}** 〔{lang}〕 {av}{q_text}")
         lines.append("")
     # 转 bytes 给 ui.download
     content = "\n".join(lines).encode("utf-8")
@@ -822,6 +863,78 @@ async def _batch_llm_re_extract() -> None:
             scan_btn.enable()
 
 
+async def _batch_quality_score() -> None:
+    """批量质量评分：对当前所有记录打分（P2-2）。
+
+    启用 LLM 且配置密钥时走 LLM 语义打分，否则使用离线启发式（始终可用）；
+    评分写回记录与缓存，便于持久化与刷新。
+    """
+    global _scanning
+    if _scanning:
+        ui.notify("操作正在进行中，请等待完成", type="warning")
+        return
+    _scanning = True
+    if scan_btn is not None:
+        scan_btn.disable()
+
+    try:
+        _update_llm_config()
+        if not records:
+            ui.notify("请先扫描以获取记录", type="warning")
+            return
+
+        use_llm = bool(config.LLM_ENABLED) and bool(config.LLM_API_KEY)
+        if not use_llm:
+            ui.notify("未启用 LLM，将使用离线启发式评分", type="info")
+        total = len(records)
+        status_label.text = f"质量评分中… 0/{total}"
+        log.info("开始批量质量评分: 记录数=%d, 模式=%s", total, "LLM" if use_llm else "heuristic")
+
+        # 1) 就地打分
+        quality_scorer.score_records(records, llm=use_llm)
+
+        # 2) 按路径分组写回缓存（保留 _raw_preview 供详情展示）
+        from collections import defaultdict
+        cache = store.load_cache()
+        by_path: dict = defaultdict(list)
+        for r in records:
+            by_path[r.get("_path", "")].append(r)
+        for path, recs in by_path.items():
+            if not path or not os.path.isfile(path):
+                continue
+            try:
+                for r in recs:
+                    # 缓存写入前补全 _raw（来自预览），使详情展示不丢失
+                    if not r.get("_raw"):
+                        r["_raw"] = r.get("_raw_preview", "")
+                from .scanner import FileMeta
+                meta = FileMeta(
+                    path=path,
+                    name=os.path.splitext(os.path.basename(path))[0],
+                    project=os.path.basename(os.path.dirname(os.path.dirname(path))),
+                    mtime=os.path.getmtime(path),
+                    size=os.path.getsize(path),
+                )
+                store.put_all(cache, meta, recs)
+            except Exception as exc:
+                log.warning("质量分写回缓存异常（跳过该文件）: %s\n%s", path, traceback.format_exc())
+
+        store.save_cache(cache)
+        _build_filter_bar()
+        _update_stats(records)
+        table.rows = _flatten_records(records)
+        status_label.text = f"质量评分完成 · 共 {len(records)} 篇"
+        ui.notify(f"质量评分完成：{len(records)} 篇（{'LLM' if use_llm else '启发式'}）", type="positive")
+        log.info("批量质量评分结束: 成功=%d", len(records))
+    except Exception as exc:
+        log.error("批量质量评分异常: %s\n%s", exc, traceback.format_exc())
+        ui.notify(f"质量评分失败: {exc}", type="negative")
+    finally:
+        _scanning = False
+        if scan_btn is not None:
+            scan_btn.enable()
+
+
 async def run_scan() -> None:
     """扫描 → 抽取（增量缓存）→ 渲染表格与筛选栏。
 
@@ -865,11 +978,15 @@ async def run_scan() -> None:
 
         for i, meta in enumerate(metas, 1):
             try:
-                if store.needs_update(meta, cache):
+                need = store.needs_update(meta, cache)
+                if need:
                     file_records = extractor.extract(meta)
-                    store.put_all(cache, meta, file_records)
                 else:
                     file_records = store.get_cached_records(meta, cache)
+                # P2-2：扫描即做离线启发式质量评分（保证质量分列始终有数据）
+                quality_scorer.score_records(file_records)
+                if need:
+                    store.put_all(cache, meta, file_records)
                 for j, rec in enumerate(file_records):
                     rec["id"] = i + j
                     rec["_mtime"] = meta.mtime
@@ -906,7 +1023,7 @@ def create_ui() -> None:
     global path_input, status_label, stats_label, filter_container, table
     global detail_dialog, meta_md, body_md, scan_btn
     global candidate_container, candidate_actions, cross_stats_label, global_search_input
-    global metric_files, metric_total, metric_matched, metric_unmatched, metric_platforms
+    global metric_files, metric_total, metric_matched, metric_unmatched, metric_platforms, metric_quality
     global chips_types, chips_langs, chips_platforms, chips_unmatched
     global _llm_enabled_switch, _llm_url_input, _llm_key_input, _llm_model_input, _llm_status_label
 
@@ -955,6 +1072,7 @@ def create_ui() -> None:
                     password=True, password_toggle_button=True,
                 ).props("outlined dense").classes("grow")
                 ui.button("批量 LLM 重抽", on_click=_batch_llm_re_extract).props("outline")
+                ui.button("批量质量评分", on_click=_batch_quality_score).props("outline")
 
     # 统计面板：4 指标 + 3 行 chips（紧凑布局）
     with ui.card().classes("w-full q-pa-sm").style("background: #fafbfc"):
@@ -965,6 +1083,7 @@ def create_ui() -> None:
                 ("check_circle", "已匹配", "metric_matched", "green"),
                 ("warning", "待识别", "metric_unmatched", "orange"),
                 ("devices", "平台", "metric_platforms", "primary"),
+                ("score", "质量均分", "metric_quality", "teal"),
             ]:
                 with ui.row().classes("items-center gap-2").style("min-width: 100px"):
                     ui.icon(icon, color=color, size="sm")
@@ -1019,6 +1138,20 @@ def create_ui() -> None:
             "table-style='max-height:62vh'"
         ).classes("w-full")
         table.on("rowClick", _on_row_click)
+        # P2-2：质量分列自定义渲染（彩色等级徽标，未评分显示灰字）
+        table.add_slot("body-cell-quality_score", """
+          <q-td :props="props">
+            <template v-if="props.value == null || props.value === ''">
+              <span class="text-grey">未评分</span>
+            </template>
+            <template v-else>
+              <q-badge
+                :color="props.value >= 80 ? 'green' : (props.value >= 60 ? 'orange' : 'red')">
+                {{ props.value }} {{ props.value >= 80 ? '高' : (props.value >= 60 ? '中' : '低') }}
+              </q-badge>
+            </template>
+          </q-td>
+        """)
 
     # 详情对话框（一次构建，复用）
     detail_dialog = ui.dialog()

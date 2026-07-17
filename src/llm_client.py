@@ -85,3 +85,61 @@ class LLMExtractor:
         except Exception as exc:
             log.warning("LLM 抽取失败，将回落规则抽取: %s", exc)
             raise
+
+    def score(self, record: dict) -> int:
+        """对单条记录做质量打分（0-100），失败抛异常由上层回落 heuristic。
+
+        Args:
+            record: 一条抽取记录（取 content/avoidance/language/type/severity/tags）
+
+        Returns:
+            int: 0-100 的质量分
+
+        Raises:
+            RuntimeError: 未配置密钥或请求失败
+        """
+        api_key = config.LLM_API_KEY or os.environ.get("MEMOALIGN_LLM_API_KEY", "")
+        if not api_key:
+            raise RuntimeError("未配置 LLM_API_KEY（或环境变量 MEMOALIGN_LLM_API_KEY）")
+        system = (
+            "你是记忆笔记质量评审助手。给定一条从 Markdown 笔记抽取的结构化记录，"
+            "请综合评估其完整度与可信度，给出 0-100 的整数分："
+            "内容清晰、规避方法具体、字段齐全则高分；内容空泛或字段缺失则低分。"
+            "只输出 JSON：{\"score\": <整数>, \"reason\": \"<简短理由>\"}"
+        )
+        user = json.dumps({
+            "content": record.get("content", ""),
+            "avoidance": record.get("avoidance", ""),
+            "language": record.get("language", []),
+            "type": record.get("type", ""),
+            "severity": record.get("severity", ""),
+            "tags": record.get("tags", []),
+        }, ensure_ascii=False)
+        payload = {
+            "model": config.LLM_MODEL,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            "temperature": 0.0,
+            "response_format": {"type": "json_object"},
+        }
+        url = f"{config.LLM_BASE_URL.rstrip('/')}/chat/completions"
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {api_key}",
+            },
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=config.LLM_TIMEOUT_SEC) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+            content = data["choices"][0]["message"]["content"]
+            parsed = json.loads(_strip_code_fence(content))
+            return int(parsed.get("score", 0))
+        except Exception as exc:
+            log.warning("LLM 质量评分失败: %s", exc)
+            raise

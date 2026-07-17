@@ -11,6 +11,10 @@
     "tests.test_runner": {
       "ok": true,
       "rc": 0
+    },
+    "tests.test_quality": {
+      "ok": true,
+      "rc": 0
     }
   },
   "passed": true
