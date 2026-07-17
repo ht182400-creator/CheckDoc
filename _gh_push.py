@@ -103,10 +103,15 @@ def _api(method, path, token, body=None):
     req = urllib.request.Request(url, data=data, headers=headers, method=method)
     try:
         with urllib.request.urlopen(req) as resp:
-            return resp.status, json.loads(resp.read().decode("utf-8"))
+            raw = resp.read()
+            return resp.status, json.loads(raw.decode("utf-8")) if raw else {}
     except urllib.error.HTTPError as exc:
         err_body = exc.read().decode("utf-8") if exc.fp else ""
-        return exc.code, err_body
+        try:
+            err_json = json.loads(err_body) if err_body else {}
+        except ValueError:
+            err_json = err_body
+        return exc.code, err_json
 
 
 def get_latest_commit_sha(token):
