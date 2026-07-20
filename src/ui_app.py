@@ -21,11 +21,15 @@ from .logger import log
 
 
 def _on_row_click(e) -> None:
-    """表格行点击事件：解析行数据并打开详情。"""
-    args = e.args or {}
-    row = args.get("row") or (args.get("args") or {}).get("row")
-    if row:
-        D._open_detail(row)
+    """表格行点击事件：取行 id 打开详情（详情按 id 从服务端完整记录取数）。
+
+    S.table.on("rowClick", ..., args=["row"]) 注册时已显式只取 row 对象，
+    故 e.args 即 row dict；解析交由 _ui_helpers._parse_row_click_id（含防御，
+    避免早期 'list' object has no attribute 'get' 崩溃）。
+    """
+    rid = H._parse_row_click_id(e.args)
+    if rid is not None:
+        D._open_detail(rid)
 
 
 @ui.page("/")
@@ -38,7 +42,7 @@ def create_ui() -> None:
     # 标题栏
     with ui.card().classes("w-full q-pa-md"):
         ui.label("MemoAlign · 记忆对齐分析器").classes("text-h5 text-weight-bold")
-        ui.label("将 **/memory/*.md 笔记对齐为结构化表格：排序 / 筛选 / 下钻 / 导出").classes("text-subtitle2 text-grey")
+        ui.label("将任意目录的 Markdown 笔记对齐为结构化表格：排序 / 筛选 / 下钻 / 导出").classes("text-subtitle2 text-grey")
 
     # 路径输入 + 操作按钮
     with ui.card().classes("w-full q-pa-md"):
@@ -47,8 +51,15 @@ def create_ui() -> None:
                 "outlined clearable").classes("grow")
             ui.button("📁 浏览", on_click=D._open_dir_browser).props("outline")
             S.scan_btn = ui.button("扫描", on_click=A.run_scan)
+            S.force_full_cb = ui.checkbox("强制全量", value=False).props(
+                "dense tooltip='勾选则忽略缓存、全量重抽所有文件'")
             graph_btn = ui.button("图谱视图", on_click=D._open_graph)
             ui.button("重置筛选", on_click=F._reset_filters)
+            S.export_scope = ui.select(
+                options={"visible": "当前可见", "all": "全部记录"},
+                value="visible",
+            ).props("dense outlined tooltip='导出范围：当前可见=按筛选结果；全部记录=忽略筛选导出全部'")
+            S.export_scope.style("min-width: 110px")
             csv_btn = ui.button("导出 CSV", on_click=A._export_csv)
             xlsx_btn = ui.button("导出 Excel", on_click=A._export_xlsx)
             md_btn = ui.button("导出 MD", on_click=A._export_md)
@@ -61,7 +72,10 @@ def create_ui() -> None:
             S.global_search_input = ui.input(
                 "全文检索", placeholder="搜索全部字段及原文内容…"
             ).props("outlined clearable dense").classes("grow")
-            S.global_search_input.on("update:model-value", lambda *_: F._apply_filters())
+            # IME 合成安全：Quasar QInput 不把 composition/input 转发到 Python，故在客户端
+            # 注入原生 composition 监听桥接 window.__memoalign_composing；防抖到点时读该
+            # 标志，合成中推迟、提交中文后才检索（参考 Vue3 主流做法），规避拼音中间态误搜。
+            F._attach_ime_safe_input(S.global_search_input, F._apply_filters)
 
         # P2-3：定时增量同步
         with ui.row().classes("items-center gap-2 w-full q-mt-sm"):
@@ -174,7 +188,10 @@ def create_ui() -> None:
             "sticky-header "
             "table-style='max-height:62vh'"
         ).classes("w-full")
-        S.table.on("rowClick", _on_row_click)
+        # P2-1：行点击打开详情。显式 args=["row"] 让 NiceGUI 只回传 Quasar
+        # rowClick 的 row 对象（默认会整包回传 [evt, row, pageIndex] 列表，导致
+        # handler 把 list 当 dict 调 .get 报 AttributeError），row 始终含 id 字段。
+        S.table.on("rowClick", _on_row_click, args=["row"])
         # P2-2：质量分列自定义渲染（彩色等级徽标，未评分显示灰字）
         # W3：阈值使用 config 常量，避免魔法数字散落
         S.table.add_slot("body-cell-quality_score", f"""

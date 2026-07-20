@@ -5,8 +5,10 @@
 """
 import asyncio
 import os
+import threading
 import traceback
 from collections import defaultdict
+from typing import Dict, List  # noqa: F401
 
 from nicegui import ui
 
@@ -23,24 +25,34 @@ from .logger import log
 # ---------------------------------------------------------------------------
 # 导出动作
 # ---------------------------------------------------------------------------
+def _export_rows() -> List[Dict]:
+    """按导出范围下拉取记录：当前可见（默认，按筛选结果）/ 全部记录（忽略筛选）。
+
+    返回完整记录（含 _raw），供导出与详情按需取数。
+    """
+    scope = H._resolve_export_scope()
+    return S.records if scope == "all" else F._compute_visible()
+
+
 def _export_csv() -> None:
-    """导出当前表格可见记录为 CSV（经 exporters 生成字节流）。"""
-    if not S.table or not S.table.rows:
+    """导出当前筛选可见（或全部）的完整记录为 CSV（读服务端完整记录，含原文）。"""
+    visible = _export_rows()
+    if not visible:
         ui.notify("表格无数据可导出", type="warning")
         return
-    content = exporters.build_csv(S.table.rows)
-    log.info("CSV导出: 记录数=%d, 字节数=%d", len(S.table.rows), len(content))
-    ui.download(content, "memoalign.csv", "text/csv; charset=utf-8")
-    ui.notify(f"已导出 CSV：{len(S.table.rows)} 条记录", type="positive")
+    content = exporters.build_csv(visible)
+    log.info("CSV导出: 记录数=%d, 字节数=%d", len(visible), len(content))
+    ui.notify(f"已导出 CSV：{len(visible)} 条记录", type="positive")
 
 
 def _export_xlsx() -> None:
-    """导出当前表格可见记录为 Excel（失败自动回落 CSV）。"""
-    if not S.table or not S.table.rows:
+    """导出当前筛选可见（或全部）的完整记录为 Excel（失败自动回落 CSV）。"""
+    visible = _export_rows()
+    if not visible:
         ui.notify("表格无数据可导出", type="warning")
         return
     try:
-        content = exporters.build_xlsx(S.table.rows)
+        content = exporters.build_xlsx(visible)
     except RuntimeError:
         ui.notify("未安装 openpyxl，已改为导出 CSV。可执行 pip install openpyxl 启用 Excel 导出", type="warning")
         _export_csv()
@@ -55,23 +67,25 @@ def _export_xlsx() -> None:
 
 
 def _export_md() -> None:
-    """按类型分组导出 Markdown 摘要（经 exporters 生成字节流）。"""
-    if not S.table or not S.table.rows:
+    """按类型分组导出当前筛选可见（或全部）的完整记录为 Markdown 摘要。"""
+    visible = _export_rows()
+    if not visible:
         ui.notify("表格无数据可导出", type="warning")
         return
-    content = exporters.build_md(S.table.rows)
-    log.info("MD导出: 记录数=%d, 字节数=%d", len(S.table.rows), len(content))
+    content = exporters.build_md(visible)
+    log.info("MD导出: 记录数=%d, 字节数=%d", len(visible), len(content))
     ui.download(content, "memoalign.md", "text/markdown; charset=utf-8")
-    ui.notify(f"已导出 Markdown：{len(S.table.rows)} 条记录", type="positive")
+    ui.notify(f"已导出 Markdown：{len(visible)} 条记录", type="positive")
 
 
 def _export_pdf() -> None:
-    """导出当前表格可见记录为 PDF（含中文；依赖 reportlab）。"""
-    if not S.table or not S.table.rows:
+    """导出当前筛选可见（或全部）的完整记录为 PDF（含中文；依赖 reportlab）。"""
+    visible = _export_rows()
+    if not visible:
         ui.notify("表格无数据可导出", type="warning")
         return
     try:
-        content = exporters.build_pdf(S.table.rows)
+        content = exporters.build_pdf(visible)
     except RuntimeError:
         ui.notify("未安装 reportlab，无法导出 PDF。可执行 pip install reportlab 启用", type="negative")
         return
@@ -80,8 +94,8 @@ def _export_pdf() -> None:
         ui.notify(f"PDF 导出失败: {exc}", type="negative")
         return
     ui.download(content, "memoalign.pdf", "application/pdf")
-    ui.notify(f"已导出 PDF：{len(S.table.rows)} 条记录", type="positive")
-    log.info("PDF导出: 记录数=%d, 字节数=%d", len(S.table.rows), len(content))
+    ui.notify(f"已导出 PDF：{len(visible)} 条记录", type="positive")
+    log.info("PDF导出: 记录数=%d, 字节数=%d", len(visible), len(content))
 
 
 # ---------------------------------------------------------------------------
@@ -348,8 +362,7 @@ async def _add_candidate_keyword(word: str) -> None:
         ok = kw_mod.add_keyword("language_keywords", config.LANG_PENDING, word)
         if ok:
             kw_mod.reload()
-            store.reset()
-            await run_scan()
+            await run_scan(force_full=True)
             ui.notify(f"已添加关键词并重扫: {word}", type="positive")
         else:
             ui.notify(f"关键词已存在: {word}", type="warning")
@@ -411,7 +424,7 @@ async def _hot_reload_keywords() -> None:
         store.reset()
         if S.records:  # 已有数据 → 自动重扫
             ui.notify("关键词已热加载，正在重新抽取…", type="info")
-            await run_scan()
+            await run_scan(force_full=True)
         else:
             ui.notify("关键词已热加载，请点「扫描」", type="info")
     except Exception as exc:
@@ -437,7 +450,7 @@ async def _reset_keywords_default() -> None:
         store.reset()
         if S.records:
             ui.notify("关键词已恢复，正在重新抽取…", type="info")
-            await run_scan()
+            await run_scan(force_full=True)
         else:
             ui.notify("关键词已恢复为默认", type="positive")
     except FileNotFoundError:
@@ -450,11 +463,17 @@ async def _reset_keywords_default() -> None:
 # ---------------------------------------------------------------------------
 # 扫描主流程
 # ---------------------------------------------------------------------------
-async def run_scan() -> None:
+async def run_scan(force_full: bool = False) -> None:
     """扫描 → 抽取（增量缓存）→ 渲染表格与筛选栏。
+
+    增量策略：默认复用上次抽取结果（store 按 mtime 判断，仅重抽变更文件）；
+    当 force_full=True（关键词热加载/编辑/清空等导致抽取逻辑变更）时清空缓存全量重抽。
 
     内置重入保护：_scanning 为 True 时拒绝重复触发，防止协程竞态。
     """
+    # UI 复选框"强制全量"可覆盖默认增量行为
+    if S.force_full_cb is not None and getattr(S.force_full_cb, "value", False):
+        force_full = True
     # 重入保护（P0-6）—— 防止并发扫描导致 records/cache 数据竞态
     if S._scanning:
         ui.notify("扫描正在进行中，请等待完成", type="warning")
@@ -475,19 +494,56 @@ async def run_scan() -> None:
         S.table.rows = []
         S.records.clear()
         discovery.reset_candidates()
-        # 强制清空文件缓存，确保抽取逻辑变更后不会读到旧缓存（导致候选发现不执行）
-        store.reset()
+        # 增量缓存：默认复用上次抽取结果（store 按 mtime 判断，仅重抽变更文件）；
+        # 仅当 force_full（关键词热加载/编辑等导致抽取逻辑变更）才清空全量重抽。
+        if force_full:
+            store.reset()
         await asyncio.sleep(0.1)
 
         cache = store.load_cache()
-        metas = scanner.scan_memory_md(root)
+        # 借鉴 Windows 文件管理器：发现阶段即边扫边显示当前路径，不让用户陷入
+        # 长时间无反馈的等待。scanner.scan_iter 是流式生成器，逐文件 yield；
+        # 这里在子线程里驱动它、主协程实时消费并显示进度，UI 始终可响应。
+        S.status_label.text = "发现文件中…（边扫描边显示）"
+        import queue as _queue
+        _meta_q: "_queue.Queue" = _queue.Queue()
+        _done = {"scan": False}
+
+        def _producer() -> None:
+            try:
+                for m in scanner.scan_iter(root):
+                    _meta_q.put(m)
+            except Exception as exc:  # noqa: BLE001
+                log.error("流式扫描异常: %s\n%s", root, traceback.format_exc())
+            finally:
+                _done["scan"] = True
+
+        _prod = threading.Thread(target=_producer, daemon=True)
+        _prod.start()
+
+        metas: List[scanner.FileMeta] = []
+        _discovered = 0
+        # 阶段一：实时消费发现结果，显示"正在扫描：<路径>"（模拟资源管理器路径滚动）
+        while not _done["scan"] or not _meta_q.empty():
+            try:
+                meta = _meta_q.get(timeout=0.2)
+            except _queue.Empty:
+                await asyncio.sleep(0.05)
+                continue
+            metas.append(meta)
+            _discovered += 1
+            if _discovered % 20 == 0 or _discovered <= 5:
+                S.status_label.text = f"正在扫描（已发现 {_discovered}）：…{os.sep}{os.path.basename(os.path.dirname(meta.path))}{os.sep}{meta.name}"
+                await asyncio.sleep(0)
         total = len(metas)
-        # 更新"文件"指标（仅在首次/重置扫描时设置，不被筛选过滤）
         if S.metric_files is not None:
             S.metric_files.text = f"{total}"
         log.info("开始扫描: root=%s, 文件数=%d", root, total)
 
+        # 阶段二：解析 + 增量渲染。每解析完一个文件就把记录 append 进表格并
+        # update，浏览器只渲染当前可视页（62vh 视口），不会因 2 万条一次性崩溃。
         for i, meta in enumerate(metas, 1):
+            file_to_show = []  # 本文件经扁平化后要加入显示行的记录
             try:
                 need = store.needs_update(meta, cache)
                 if need:
@@ -502,6 +558,7 @@ async def run_scan() -> None:
                     rec["id"] = i + j
                     rec["_mtime"] = meta.mtime
                     S.records.append(rec)
+                file_to_show = file_records
             except Exception as exc:
                 log.error("处理文件异常，已跳过: %s\n%s", meta.path, traceback.format_exc())
                 placeholder = {f.key: (["通用"] if f.ftype == FieldType.MULTI else
@@ -510,15 +567,22 @@ async def run_scan() -> None:
                 placeholder.update({"content": "解析失败", "source": f"{meta.project}/{meta.name}",
                                     "_path": meta.path, "_raw": "", "id": i, "_mtime": meta.mtime})
                 S.records.append(placeholder)
-            if i % 5 == 0:
-                S.status_label.text = f"扫描中 {i}/{total}"
-                await asyncio.sleep(0.1)
+                file_to_show = [placeholder]
+            # 增量扁平化：只处理本文件新增记录（O(1) 单次），append 进显示行；
+            # 不再每次重建全量 S.records（消除 O(N²) WebSocket 洪流）。显示行已
+            # 剔除 _raw 且 TEXT 截断，推送体积极小，浏览器仅渲染可视区。
+            S.table.rows.extend(H._flatten_one(r) for r in file_to_show)
+            if i % 20 == 0:
+                S.table.update()
+                S.status_label.text = f"解析中 {i}/{total} · 已载入 {len(S.records)} 条"
+                await asyncio.sleep(0)
 
         store.save_cache(cache)
         F._build_filter_bar()
         F._update_stats(S.records)
         _refresh_candidates()
         S.table.rows = H._flatten_records(S.records)
+        S.table.update()
         S.status_label.text = f"就绪 · 共 {len(S.records)} 篇"
         ui.notify(f"扫描完成，共 {len(S.records)} 篇", type="positive")
         log.info("扫描结束: 记录数=%d", len(S.records))

@@ -28,6 +28,9 @@
 | `severity` | 严重度 | select | 是 | 高/中/低 |
 | `source` | 来源 | text | 是 | 项目名 + 文件名 |
 | `tags` | 标签 | multi | 是 | 派生标签（语言 + 类型 + 平台组合） |
+| `quality_score` | 质量分 | int/null | 否（统计用） | 0–100 质量评分（`quality_scorer` 评分；`None`=未评分） |
+
+> **内部字段**（不入表，供缓存/详情/导出）：`id`（显示行主键）、`_mtime`（缓存时间键）、`_path`（源文件路径）、`_raw`（整篇原文，仅服务端保留）、`_raw_preview`（缓存预览）、`_truncated`（超长截断标记）。显示行经 `_flatten_one` 剔除 `_raw`/`_raw_preview` 并截断 TEXT（200 字），详情/导出按 `id`/`_path` 取完整数据，避免整篇原文经 WebSocket 推送撑爆缓冲（见 02 §3 决策 9）。
 
 ## 2. Schema 定义（config.SCHEMA）
 

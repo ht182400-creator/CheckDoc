@@ -49,6 +49,8 @@ _scanning: bool = False  # 扫描/批量操作中禁止再次触发
 _candidate_updating: bool = False  # chip 回调中禁止 clear 容器
 # 扫描按钮引用（用于禁用/启用）
 scan_btn = None
+# 强制全量重扫复选框（UI 增量开关：勾选后忽略缓存全量抽取）
+force_full_cb = None
 # 候选关键词面板
 candidate_container = None  # 候选关键词面板容器（动态重建）
 candidate_actions = None  # 候选操作按钮行（全加载/热加载/重置）
@@ -71,3 +73,5 @@ autosync_switch = None  # 自动同步开关
 autosync_interval = None  # 自动同步间隔下拉
 # W11：依赖数据存在性的操作按钮（空数据时禁用）
 data_buttons = []  # [导出CSV, 导出Excel, 导出MD, 导出PDF, 图谱, 修正低分]
+# 导出范围下拉：当前可见（默认）/ 全部记录（忽略筛选）
+export_scope = None

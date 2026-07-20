@@ -10,6 +10,9 @@
   "case_library": {
     "ok": true
   },
+  "scan_default": {
+    "ok": true
+  },
   "tests": {
     "tests.test_pipeline": {
       "ok": true,
@@ -32,6 +35,10 @@
       "rc": 0
     },
     "tests.test_ui_helpers": {
+      "ok": true,
+      "rc": 0
+    },
+    "tests.test_scanner": {
       "ok": true,
       "rc": 0
     },

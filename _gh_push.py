@@ -32,9 +32,9 @@ API_BASE = "https://api.github.com"
 EXCLUDE_DIRS = {".git", "__pycache__", ".venv", "venv", "node_modules", "dist", "build",
                 ".cache", ".pytest_cache"}
 EXCLUDE_SUFFIX = (".pyc", ".log")
-# 仓库根目录下的临时/调试文件
+# 仓库根目录下的临时/调试文件（排除，不纳入推送）
 ROOT_TEMP = {"_add_debug.py", "_test_multi.py", "_test_out.txt", "_server.log",
-            "_server_err.log", "_verify_out.txt"}
+            "_server_err.log", "_verify_out.txt", "_imp.txt", "_sc.txt"}
 # tests/ 下的临时产物（诊断脚本、临时 txt、运行日志）
 TESTS_TEMP_PREFIX = ("_",)        # tests/_xxx.py / tests/_xxx.txt
 TESTS_LOG_PREFIX = ("test_run_",)  # tests/test_run_*.log
@@ -51,8 +51,19 @@ def _read_text(abs_path: str) -> str:
     try:
         return raw.decode("utf-8")
     except UnicodeDecodeError:
+        pass
+    try:
+        # 含 BOM 的 UTF-16（如某些编辑器保存的 _sc.txt）
+        return raw.decode("utf-16")
+    except UnicodeDecodeError:
+        pass
+    try:
         log.warning("文件非 UTF-8，按 GB18030 回落解码: %s", abs_path)
         return raw.decode("gb18030")
+    except UnicodeDecodeError:
+        # 兜底：用 errors="replace" 保证整轮推送不因单个异常编码文件而中断
+        log.error("文件编码无法识别(utf-8/utf-16/gb18030 均失败)，按 replace 兜底: %s", abs_path)
+        return raw.decode("utf-8", errors="replace")
 
 
 def _should_exclude(rel: str) -> bool:

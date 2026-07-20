@@ -12,6 +12,22 @@ from typing import List
 from . import keywords as _kw_loader
 
 # ---------------------------------------------------------------------------
+# 网络 / WebSocket 缓冲配置
+# ---------------------------------------------------------------------------
+# NiceGUI 底层 python-socketio 默认 max_http_buffer_size=1MB（1_000_000 字节）。
+# 大表格单次 update() 推送易超 1MB 触发 "connection lost" → 白屏/自动重连后再次超限。
+# 放大为 256MB 作为兜底（治标）：治本仍应在表格侧瘦身（只推显示列、剔除整篇 _raw），
+# 见 _ui_actions.run_scan / _ui_helpers._flatten_records 后续优化。
+SOCKETIO_MAX_HTTP_BUFFER_SIZE: int = 256 * 1024 * 1024
+
+# ---------------------------------------------------------------------------
+# 表格显示配置
+# ---------------------------------------------------------------------------
+# 前端表格 TEXT 字段预览截断长度（字符）：表格只显示预览，完整内容按 id 从
+# 服务端 S.records 现取（详情/导出），避免整篇原文经 WebSocket 推送撑爆缓冲。
+CONTENT_PREVIEW_MAX: int = 200
+
+# ---------------------------------------------------------------------------
 # 路径与扫描配置
 # ---------------------------------------------------------------------------
 # 默认扫描根目录（UI 可覆盖，可任意指定）
@@ -19,6 +35,23 @@ DEFAULT_ROOT: str = r"D:\Work_Area\AI"
 
 # 目标子目录名：递归查找所有名为该名的目录
 MEMORY_DIR_NAME: str = "memory"
+
+# 扫描时跳过的「全局垃圾目录」：任何层级都直接跳过（依赖/产物/缓存，
+# 绝不含有 memory 数据源）。⚠️ 不要把可能含数据源的目录（如 .codebuddy）放这里！
+SKIP_DIR_NAMES: tuple = (
+    ".git", "node_modules", ".venv", "venv", "__pycache__",
+    "dist", "build", ".idea", ".vscode", ".cache",
+    "target", "out", "bin", "obj", ".mypy_cache", ".pytest_cache",
+)
+
+# 隐藏容器裁剪开关：进入「以 . 开头的目录」（.codebuddy/.cursor/.claude/任意自定义隐藏目录）
+# 后只保留 memory 数据源子目录，裁剪其余噪声（skills/cache/plugins）。借鉴 ripgrep/fd 的
+# path-aware ignore：数据源锚点 memory 永不丢失，噪声按路径裁剪，保证通用且不硬编码具体目录名。
+HIDDEN_DIR_TRIM: bool = True
+
+# 并发扫描线程数：I/O 密集型，适度并发 overlap 磁盘 I/O；过大反而争抢，封顶 16。
+# 灰度：对 root 的顶层子目录（通常即各项目）并行 os.walk。
+SCAN_MAX_WORKERS: int = 8
 
 # 支持的文件扩展名（小写）
 MD_EXTENSIONS: tuple = (".md", ".markdown")

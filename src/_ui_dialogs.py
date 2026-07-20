@@ -7,6 +7,7 @@ from typing import Dict, List
 
 import os
 import traceback
+from pathlib import Path
 from nicegui import ui
 
 from . import config, scanner, store, record_edit, quality_scorer
@@ -17,22 +18,39 @@ from .config import FieldType
 from .logger import log
 
 
-def _open_detail(row: Dict) -> None:
-    """打开详情对话框，展示元数据与原文 Markdown。"""
-    S.current_detail_row = row  # B1：缓存当前记录，供详情内"编辑"按钮引用
-    q_score = row.get(config.QUALITY_SCORE_KEY)
+def _open_detail(rec_id) -> None:
+    """打开详情对话框：按 id 从服务端完整记录取数（不依赖前端回传的 _raw）。
+
+    表格显示行已瘦身（剔除 _raw、TEXT 截断），故详情不能再用 row["_raw"]；
+    改为按 id 在服务端 S.records 查完整记录，按需渲染原文（类比资源管理器
+    双击才打开文件读内容），单条推送远小于 1MB，不触发 connection lost。
+    """
+    rec = H._find_record_by_id(rec_id)
+    if rec is None:
+        ui.notify("未找到原记录", type="negative")
+        return
+    S.current_detail_row = rec  # B1：缓存当前记录，供详情内"编辑"按钮引用
+    q_score = rec.get(config.QUALITY_SCORE_KEY)
     q_tier = quality_scorer.tier_of(q_score)
     S.meta_md.set_content(
-        f"**来源**：{row.get('source', '')}  \n"
-        f"**路径**：`{row.get('_path', '')}`  \n"
-        f"**语言范畴**：{row.get('language', '')}  \n"
-        f"**平台**：{row.get('platform', '')}  \n"
-        f"**类型**：{row.get('type', '')}  \n"
-        f"**严重度**：{row.get('severity', '')}  \n"
+        f"**来源**：{rec.get('source', '')}  \n"
+        f"**路径**：`{rec.get('_path', '')}`  \n"
+        f"**语言范畴**：{rec.get('language', '')}  \n"
+        f"**平台**：{rec.get('platform', '')}  \n"
+        f"**类型**：{rec.get('type', '')}  \n"
+        f"**严重度**：{rec.get('severity', '')}  \n"
         f"**质量分**：{q_score if q_score is not None else '未评分'}（{q_tier}）  \n"
-        f"**标签**：{row.get('tags', '')}"
+        f"**标签**：{rec.get('tags', '')}"
     )
-    S.body_md.set_content(row.get("_raw", "") or "（无内容）")
+    # 详情原文：优先取内存完整 _raw；缓存记录可能只有 _raw_preview，则按 _path
+    # 现读源文件兜底（保证详情始终可见完整内容）。
+    raw = rec.get("_raw") or ""
+    if not raw and rec.get("_path"):
+        try:
+            raw = Path(rec["_path"]).read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            raw = rec.get("_raw_preview", "") or "（无内容）"
+    S.body_md.set_content(raw or "（无内容）")
     # P2-4：内容渲染后对其内代码块做语法高亮（highlight.js 全局已加载）
     if config.CODE_HIGHLIGHT_ENABLED:
         ui.run_javascript(

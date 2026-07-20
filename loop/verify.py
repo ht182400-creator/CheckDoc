@@ -5,7 +5,8 @@
     1. 编译检查 src/*.py
     2. 运行 unittest 回归（test_pipeline + test_runner）
     3. 输出人类可读报告 + 机器可读 JSON（tests/loop_verify.json）
-    4. 有任一失败则 exit(1)，全过 exit(0)
+    4. 扫描通用性门禁：默认扫描规则必须为"任意目录 .md"（防回归到固定目录）
+    5. 有任一失败则 exit(1)，全过 exit(0)
 
 用法：
     python loop/verify.py
@@ -82,8 +83,20 @@ def _check_case_library() -> dict:
     return {"ok": True, "out": ""}
 
 
+def _check_scan_default() -> dict:
+    """扫描通用性门禁：默认 MatchRule 必须是"任意目录 .md"（dir_name is None）。
+
+    防止回归到固定只认 memory 目录——2026-07-18 用户实测普通目录 .md 被漏扫的盲点。
+    复用 _run 子进程（cwd=ROOT，可 import src），避免主进程 sys.path 缺 ROOT。
+    """
+    return _run([sys.executable, "-c",
+                 "import src.scanner as s\n"
+                 "d = s.MatchRule().dir_name\n"
+                 "assert d is None, '默认扫描规则仍是固定目录 dir_name=' + repr(d) + '，应为 None（任意目录 .md）'\n"])
+
+
 def main() -> int:
-    report = {"compile": {}, "ui_import": {}, "case_library": {}, "tests": {}, "passed": False}
+    report = {"compile": {}, "ui_import": {}, "case_library": {}, "scan_default": {}, "tests": {}, "passed": False}
     print("=" * 60)
     print("MemoAlign verify - compile + test")
     print("=" * 60)
@@ -111,10 +124,17 @@ def main() -> int:
     if not cl["ok"]:
         _sp(cl["out"])
 
+    # 3.5) 扫描通用性门禁（防止回归到固定只认 memory 目录）
+    sd = _check_scan_default()
+    report["scan_default"] = {"ok": sd["ok"]}
+    print(f"[scan_default] {'PASS' if sd['ok'] else 'FAIL'}")
+    if not sd["ok"]:
+        _sp(sd["out"])
+
     # 4) 测试
     for suite in ("tests.test_pipeline", "tests.test_runner", "tests.test_quality",
                   "tests.test_sync", "tests.test_highlight", "tests.test_ui_helpers",
-                  "tests.test_exporters", "tests.test_record_edit"):
+                  "tests.test_scanner", "tests.test_exporters", "tests.test_record_edit"):
         t = _run([sys.executable, "-m", "unittest", suite, "-v"])
         report["tests"][suite] = {"ok": t["ok"], "rc": t["rc"]}
         print(f"[{suite}] {'PASS' if t['ok'] else 'FAIL'} (rc={t['rc']})")
@@ -122,7 +142,7 @@ def main() -> int:
             _sp(t["out"][-2500:])
 
     report["passed"] = (
-        comp["ok"] and ui_imp["ok"] and cl["ok"]
+        comp["ok"] and ui_imp["ok"] and cl["ok"] and sd["ok"]
         and all(v["ok"] for v in report["tests"].values())
     )
     out_path = os.path.join(ROOT, "tests", "loop_verify.json")
